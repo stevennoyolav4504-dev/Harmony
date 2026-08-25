@@ -1,6 +1,6 @@
 # Harmony — Instagram & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourname/harmony/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -82,8 +82,8 @@
 如果你想自己运行源码或进行二次开发：
 
 ```bash
-git clone https://github.com/yourname/harmony.git
-cd harmony
+git clone https://github.com/stevennoyolav4504-dev/Harmony.git
+cd Harmony
 pip install -r requirements.txt
 playwright install chromium
 python main.py

@@ -1,0 +1,18 @@
+# 用户敏感数据（切勿提交）
+cookies.json
+youtube_cookies.txt
+config.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# 打包产物
+build/
+dist/
+
+# 运行时依赖（本地生成，体积大）
+browsers/
+runtime/
