@@ -60,7 +60,7 @@
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/yourname/harmony/releases) 下载最新版本的 `Harmony.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 
@@ -108,7 +108,7 @@ A：Cookie 已过期，请重新执行一键登录或手动更新 `cookies.json`
 A：确保 `cookies.json` 中包含 YouTube/Google 的有效 Cookie。程序会自动转换。
 
 **Q：有没有使用教程？**  
-A：程序界面本身比较直观，你也可以在 [Releases](https://github.com/yourname/harmony/releases) 页面查看演示视频（如有）。
+A：程序界面本身比较直观，你也可以在 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 页面查看演示视频（如有）。
 
 ---
 
