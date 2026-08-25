@@ -27,7 +27,7 @@
 
 如果你也是 QWER 的听众，希望它能帮你更好地保存那些值得反复回看的片段。
 
-[![Instagram](https://www.instagram.com/qwerband_official/)
+[![Instagram](https://img.shields.io/badge/@qwer.official-E4405F?style=flat&logo=instagram&logoColor=white)](https://www.instagram.com/qwerband_official/)
 [![YouTube](https://img.shields.io/badge/QWER-FF0000?style=flat&logo=youtube&logoColor=white)](https://www.youtube.com/@QWER_Band_official)
 
 ---
