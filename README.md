@@ -1,6 +1,6 @@
-# Harmony — Instagram & YouTube 多媒体下载器
+# Harmony 2.0 — Instagram & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -8,6 +8,15 @@
 > 内置现代化暗色/亮色主题、多选预览、批量下载、历史记忆，专为粉丝设计。
 
 ---
+
+## 2.0 更新
+
+新版采用浅紫色卡片布局、文字侧边栏与顶部平台切换，并换用三色云下载图标。
+新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
+
+- [2.0.0 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.0.0)
+- [完整更新日志](CHANGELOG.md)
+- 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
 ## 🎵 关于名字
 
@@ -60,7 +69,7 @@
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.0.0-Windows-x64.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 
@@ -73,7 +82,7 @@
 - **方式一（推荐）**：点击程序内的 **一键登录** 按钮，按提示操作即可自动完成
 - **方式二（手动）**：安装浏览器扩展 [Cookie-Editor](https://chrome.google.com/webstore/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)，登录 Instagram 后导出 Cookie（JSON 格式），保存为 `cookies.json` 放在程序根目录
 
-> YouTube 下载会自动复用 Instagram 的 Cookie，无需额外配置。
+> YouTube 登录状态需要 YouTube / Google 域的有效 Cookie；Instagram Cookie 本身不能用于 YouTube 登录。
 
 ---
 
@@ -89,7 +98,24 @@ playwright install chromium
 python main.py
 ```
 
-详细说明请参考 [开发者文档](DEVELOPER.md)（如有）。
+### Windows 启动与打包
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install pyinstaller==6.22.0
+$env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\browsers"
+.\venv\Scripts\python.exe -m playwright install chromium
+.\venv\Scripts\python.exe main.py
+```
+
+之后可双击 `launch.vbs` 启动。运行 `build.bat` 生成 `dist/Harmony/Harmony.exe`，发布时携带整个目录。
+视频转码、合并与片段下载需要 FFmpeg，可放到 `browsers/ffmpeg/ffmpeg.exe` 或加入系统 PATH。
+YouTube 使用的 Node 运行时可放到 `runtime/node/<版本>/node.exe`。
+
+界面代码位于 `harmony_ui.py`，绘制图标和插画的代码位于 `harmony_art.py`，版本位于 `version.py`。
+运行 `.\venv\Scripts\python.exe tests/test_ui.py` 执行离线界面回归测试。
+
 
 ---
 

@@ -1,18 +1,24 @@
-# 用户敏感数据（切勿提交）
+# Personal state and credentials
 cookies.json
 youtube_cookies.txt
 config.json
-
-# Python
-__pycache__/
-*.pyc
-venv/
 .env
+.env.*
+!.env.example
+logs/
+*.log
+.image_cache/
+temp/
+backups/
 
-# 打包产物
+# Python and generated distributions
+__pycache__/
+*.py[cod]
+venv/
+.venv/
 build/
 dist/
-
-# 运行时依赖（本地生成，体积大）
 browsers/
 runtime/
+releases/
+release-workspace/

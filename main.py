@@ -25,6 +25,7 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from logging.handlers import RotatingFileHandler
+from version import __version__
 
 # ---------- 打包路径兼容 ----------
 def _get_base_dir():
@@ -1229,13 +1230,16 @@ class YouTubeDownloader:
 
 
 
-class InstagramDownloaderApp(ctk.CTk):
+from harmony_ui import HarmonyUI
+
+
+class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     # ────────── 类级常量 ──────────
     # 窗口常量
-    WINDOW_WIDTH = 1050
-    WINDOW_HEIGHT = 900
-    MIN_WIDTH = 1050
-    MIN_HEIGHT = 900
+    WINDOW_WIDTH = 1280
+    WINDOW_HEIGHT = 940
+    MIN_WIDTH = 1120
+    MIN_HEIGHT = 740
 
     # UI 常量
     PAD_X = 25
@@ -1251,12 +1255,12 @@ class InstagramDownloaderApp(ctk.CTk):
 
     COLOR_SCHEMES = {
         "Light": {
-            "bg_root": "#F1F5F9", "bg_card": "#FFFFFF", "bg_input": "#F8FAFC",
-            "bg_sidebar": "#FFFFFF", "bg_ghost": "#F1F5F9", "border": "#E2E8F0",
-            "text_primary": "#0F172A", "text_heading": "#1E293B", "text_secondary": "#64748B",
-            "text_muted": "#94A3B8", "text_button": "#334155", "text_button_dim": "#475569",
-            "accent": "#A855F7", "accent_hover": "#9333EA", "accent_bg": "#F3E8FF",
-            "ghost_hover": "#E2E8F0", "history_bg": "#F8FAFC", "placeholder": "#A855F7",
+            "bg_root": "#F0F3FF", "bg_card": "#FFFFFF", "bg_input": "#F8F9FF",
+            "bg_sidebar": "#FFFFFF", "bg_ghost": "#F0EEFC", "border": "#DFE2FA",
+            "text_primary": "#111537", "text_heading": "#151B43", "text_secondary": "#7C85AF",
+            "text_muted": "#A0A8CA", "text_button": "#303968", "text_button_dim": "#626E9E",
+            "accent": "#9850FF", "accent_hover": "#8138ED", "accent_bg": "#F2ECFF",
+            "ghost_hover": "#E9E5FB", "history_bg": "#F7F8FD", "placeholder": "#9850FF",
         },
         "Dark": {
             "bg_root": "#0B1120", "bg_card": "#1E293B", "bg_input": "#1E293B",
@@ -1277,8 +1281,8 @@ class InstagramDownloaderApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("Harmony")
-        self.geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}")
+        self.title(f"Harmony {__version__}")
+        self.geometry(f"{min(self.WINDOW_WIDTH, int(self.winfo_screenwidth() / self._get_window_scaling()) - 60)}x{min(self.WINDOW_HEIGHT, int(self.winfo_screenheight() / self._get_window_scaling()) - 80)}")
         self.minsize(self.MIN_WIDTH, self.MIN_HEIGHT)
 
         # 设置窗口图标
@@ -1359,357 +1363,6 @@ class InstagramDownloaderApp(ctk.CTk):
         self._build_sidebar()
         self._build_main()
 
-    def _build_sidebar(self):
-        c = self.c
-        self.sidebar = ctk.CTkFrame(self, width=60, corner_radius=0, fg_color=c["bg_sidebar"])
-        self.sidebar.pack(side="left", fill="y")
-
-        ctk.CTkButton(
-            self.sidebar, text="🔗", width=42, height=42, corner_radius=10,
-            fg_color=c["bg_ghost"], text_color=c["accent"], font=("Segoe UI", 16),
-            command=lambda: self.url_entry.focus()
-        ).pack(pady=(20, 10))
-
-        ctk.CTkButton(
-            self.sidebar, text="📁", width=42, height=42, corner_radius=10,
-            fg_color="transparent", text_color=c["text_secondary"], font=("Segoe UI", 16),
-            command=self._open_save_dir
-        ).pack(pady=8)
-
-        ctk.CTkButton(
-            self.sidebar, text="🌙", width=42, height=42, corner_radius=10,
-            fg_color="transparent", text_color=c["text_secondary"], font=("Segoe UI", 16),
-            command=self._toggle_theme
-        ).pack(pady=8)
-
-        ctk.CTkButton(
-            self.sidebar, text="🛡", width=42, height=42, corner_radius=10,
-            fg_color="transparent", text_color=c["text_secondary"], font=("Segoe UI", 16),
-            command=self._open_proxy_dialog
-        ).pack(pady=8)
-
-    def _build_main(self):
-        c = self.c
-        # ===== 主容器 =====
-        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.pack(side="right", fill="both", expand=True, padx=self.PAD_X, pady=self.PAD_Y)
-
-        # ===== 标签页 =====
-        self.tabview = ctk.CTkTabview(self.main_container, fg_color="transparent")
-        self.tabview.pack(fill="both", expand=True)
-        self.tabview.add("Instagram")
-        self.tabview.add("YouTube")
-
-        # ─── Instagram 标签页 ───
-        ig_tab = self.tabview.tab("Instagram")
-        ig_scroll = ctk.CTkScrollableFrame(ig_tab, fg_color="transparent")
-        ig_scroll.pack(fill="both", expand=True)
-
-        header = ctk.CTkFrame(ig_scroll, fg_color="transparent")
-        header.pack(fill="x", pady=(0, 15))
-
-        title_box = ctk.CTkFrame(header, fg_color="transparent")
-        title_box.pack(anchor="w")
-
-        ctk.CTkLabel(title_box, text="Instagram 媒体提取器", font=("Segoe UI", 20, "bold"), text_color=c["text_primary"]).pack(side="left")
-        ctk.CTkLabel(title_box, text="图片·视频", font=("Segoe UI", 11, "bold"), text_color=c["accent"], fg_color=c["accent_bg"], corner_radius=6, padx=8, pady=2).pack(side="left", padx=10)
-
-        ctk.CTkLabel(header, text="粘贴 Instagram 帖子链接，提取图片与视频", font=("Segoe UI", 12), text_color=c["text_secondary"]).pack(anchor="w", pady=(3, 0))
-
-        # Card 1: 链接输入
-        card1 = ctk.CTkFrame(ig_scroll, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        card1.pack(fill="x", pady=8, ipady=10, ipadx=10)
-
-        card1_title = ctk.CTkFrame(card1, fg_color="transparent")
-        card1_title.pack(fill="x", padx=15, pady=(10, 6))
-        ctk.CTkLabel(card1_title, text="1. 粘贴 Instagram 帖子链接", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(side="left")
-        ctk.CTkButton(
-            card1_title, text="❓", width=28, height=28, corner_radius=14,
-            fg_color=c["bg_ghost"], text_color=c["text_secondary"], font=("Segoe UI", 12),
-            hover_color=c["ghost_hover"], command=self._show_cookie_guide
-        ).pack(side="right")
-
-        entry_row = ctk.CTkFrame(card1, fg_color="transparent")
-        entry_row.pack(fill="x", padx=15, pady=(0, 5))
-
-        self.url_entry = ctk.CTkEntry(
-            entry_row, textvariable=self.url_var,
-            placeholder_text="https://www.instagram.com/p/...", height=40,
-            corner_radius=8, border_color=c["border"], fg_color=c["bg_input"]
-        )
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
-
-        btn_col = ctk.CTkFrame(entry_row, fg_color="transparent")
-        btn_col.pack(side="right")
-
-        self.clear_url_btn = ctk.CTkButton(
-            btn_col, text="✕ 清除链接", font=("Segoe UI", 11),
-            height=18, width=120, corner_radius=6, fg_color=c["border"],
-            text_color=c["text_button"], hover_color="#9e9e9e",
-            command=lambda: self.url_var.set("")
-        )
-        self.clear_url_btn.pack(side="top", pady=(0, 4))
-
-        self.fetch_btn = ctk.CTkButton(
-            btn_col, text="⊕ 提取", font=("Segoe UI", 13, "bold"),
-            height=40, width=120, corner_radius=8, fg_color=c["accent"], hover_color=c["accent_hover"],
-            command=self.fetch_images
-        )
-        self.fetch_btn.pack(side="top")
-
-        # Card 2: 保存目录 + 历史
-        card2_grid = ctk.CTkFrame(ig_scroll, fg_color="transparent", height=100)
-        card2_grid.pack(fill="x", pady=8)
-        card2_grid.pack_propagate(False)
-
-        c2_left = ctk.CTkFrame(card2_grid, fg_color=c["bg_card"], corner_radius=12, border_width=1, border_color=c["border"])
-        c2_left.pack(side="left", fill="both", expand=True, padx=(0, 6), ipadx=10)
-
-        ctk.CTkLabel(c2_left, text="2. 保存目录", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(anchor="w", padx=15, pady=(10, 6))
-        dir_row = ctk.CTkFrame(c2_left, fg_color="transparent")
-        dir_row.pack(fill="x", padx=15)
-
-        self.dir_entry = ctk.CTkEntry(dir_row, textvariable=self.dir_var, height=36, corner_radius=8, border_color=c["border"], fg_color=c["bg_input"])
-        self.dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(dir_row, text="浏览", width=60, height=36, corner_radius=8, fg_color=c["bg_ghost"], text_color=c["text_button"], hover_color=c["ghost_hover"], command=self.browse_dir).pack(side="right")
-
-        c2_right = ctk.CTkFrame(card2_grid, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        c2_right.pack(side="right", fill="both", expand=True, padx=(6, 0), ipadx=10)
-
-        self.hist_header = ctk.CTkFrame(c2_right, fg_color="transparent", cursor="hand2")
-        self.hist_header.pack(fill="x", padx=15, pady=(10, 6))
-        self.hist_title_label = ctk.CTkLabel(self.hist_header, text="历史记录", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"])
-        self.hist_title_label.pack(side="left")
-        self.history_btn = ctk.CTkButton(
-            self.hist_header, text="", width=28, height=28, corner_radius=6,
-            fg_color=c["bg_ghost"], text_color=c["text_secondary"], font=("Segoe UI", 10),
-            hover_color=c["ghost_hover"], command=self._toggle_history
-        )
-        self.history_btn.pack(side="right")
-        self.hist_header.bind("<Button-1>", lambda e: self._toggle_history())
-        self.hist_title_label.bind("<Button-1>", lambda e: (self._toggle_history(), "break"))
-
-        self.hist_inline = ctk.CTkFrame(c2_right, fg_color="transparent")
-        self.hist_inline.pack(fill="x", padx=10, pady=(0, 5))
-        self.hist_inline.pack_forget()
-
-        # 进度与状态
-        progress_box = ctk.CTkFrame(ig_scroll, fg_color="transparent")
-        progress_box.pack(fill="x", pady=(15, 5))
-
-        self.status_label = ctk.CTkLabel(progress_box, text="就绪", font=("Segoe UI", 12), text_color=c["text_secondary"])
-        self.status_label.pack(side="left")
-
-        self.count_label = ctk.CTkLabel(progress_box, text="", font=("Segoe UI", 12), text_color=c["text_secondary"])
-        self.count_label.pack(side="right")
-
-        self.progress_bar = ctk.CTkProgressBar(ig_scroll, height=6, corner_radius=3, progress_color=c["accent"], fg_color=c["border"])
-        self.progress_bar.set(0)
-        self.progress_bar.pack(fill="x", pady=(0, 10))
-
-        # Card 3: 媒体预览
-        card3 = ctk.CTkFrame(ig_scroll, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        card3.pack(fill="x", pady=8, ipady=10, ipadx=10)
-
-        c3_header = ctk.CTkFrame(card3, fg_color="transparent")
-        c3_header.pack(fill="x", padx=15, pady=(10, 10))
-
-        ctk.CTkLabel(c3_header, text="3. 提取到的媒体 (左键选择 · 右键预览)", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(side="left")
-
-        c3_actions = ctk.CTkFrame(c3_header, fg_color="transparent")
-        c3_actions.pack(side="right")
-
-        self.select_all_chk = ctk.CTkCheckBox(c3_actions, text="全选", font=("Segoe UI", 12), checkbox_width=18, checkbox_height=18, corner_radius=4, fg_color=c["accent"], command=self.toggle_select_all)
-        self.select_all_chk.select()
-        self.select_all_chk.pack(side="left", padx=10)
-
-        ctk.CTkButton(c3_actions, text="🗑 清空列表", font=("Segoe UI", 12), height=30, corner_radius=6, fg_color=c["bg_ghost"], text_color=c["text_button"], hover_color=c["ghost_hover"], command=self.clear_all).pack(side="left")
-
-        self.preview_grid = ctk.CTkFrame(card3, fg_color="transparent")
-        self.preview_grid.pack(fill="x", padx=10, pady=5)
-        self.preview_grid.bind("<Configure>", self._on_preview_resize)
-
-        # 底部操作栏
-        bottom_bar = ctk.CTkFrame(ig_scroll, fg_color="transparent")
-        bottom_bar.pack(fill="x", pady=(15, 10))
-
-        self.selection_summary = ctk.CTkLabel(bottom_bar, text="已选择 0 个媒体", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"])
-        self.selection_summary.pack(side="left")
-
-        bottom_btns = ctk.CTkFrame(bottom_bar, fg_color="transparent")
-        bottom_btns.pack(side="right")
-
-        ctk.CTkButton(bottom_btns, text="📋 复制链接", font=("Segoe UI", 12), height=38, corner_radius=8, fg_color=c["bg_card"], text_color=c["text_button"], border_width=1, border_color=c["border"], hover_color=c["bg_input"], command=self.copy_selected_links).pack(side="left", padx=8)
-
-        self.download_btn = ctk.CTkButton(
-            bottom_btns, text="⬇ 下载选中媒体", font=("Segoe UI", 13, "bold"),
-            height=38, corner_radius=8, fg_color=c["accent"], hover_color=c["accent_hover"],
-            state="disabled", command=self.download_all
-        )
-        self.download_btn.pack(side="left")
-
-        # ─── YouTube 标签页 ───
-        yt_tab = self.tabview.tab("YouTube")
-        yt_scroll = ctk.CTkScrollableFrame(yt_tab, fg_color="transparent")
-        yt_scroll.pack(fill="both", expand=True)
-
-        yt_header = ctk.CTkFrame(yt_scroll, fg_color="transparent")
-        yt_header.pack(fill="x", pady=(0, 15))
-
-        yt_title_box = ctk.CTkFrame(yt_header, fg_color="transparent")
-        yt_title_box.pack(anchor="w")
-
-        ctk.CTkLabel(yt_title_box, text="YouTube 下载器", font=("Segoe UI", 20, "bold"), text_color=c["text_primary"]).pack(side="left")
-        ctk.CTkLabel(yt_title_box, text="视频·音频", font=("Segoe UI", 11, "bold"), text_color=c["accent"], fg_color=c["accent_bg"], corner_radius=6, padx=8, pady=2).pack(side="left", padx=10)
-
-        ctk.CTkLabel(yt_header, text="粘贴 YouTube / B站 等链接，下载视频或音频", font=("Segoe UI", 12), text_color=c["text_secondary"]).pack(anchor="w", pady=(3, 0))
-
-        # URL 输入
-        yt_card1 = ctk.CTkFrame(yt_scroll, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        yt_card1.pack(fill="x", pady=8, ipady=10, ipadx=10)
-
-        ctk.CTkLabel(yt_card1, text="粘贴链接", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(anchor="w", padx=15, pady=(10, 6))
-
-        yt_entry_row = ctk.CTkFrame(yt_card1, fg_color="transparent")
-        yt_entry_row.pack(fill="x", padx=15, pady=(0, 5))
-
-        self.yt_url_entry = ctk.CTkEntry(
-            yt_entry_row, textvariable=self.yt_url_var,
-            placeholder_text="https://www.youtube.com/watch?v=...", height=40,
-            corner_radius=8, border_color=c["border"], fg_color=c["bg_input"]
-        )
-        self.yt_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
-
-        yt_btn_col = ctk.CTkFrame(yt_entry_row, fg_color="transparent")
-        yt_btn_col.pack(side="right")
-
-        ctk.CTkButton(
-            yt_btn_col, text="✕ 清除链接", font=("Segoe UI", 11),
-            height=18, width=120, corner_radius=6, fg_color=c["border"],
-            text_color=c["text_button"], hover_color="#9e9e9e",
-            command=lambda: self.yt_url_var.set("")
-        ).pack(side="top", pady=(0, 4))
-
-        # 保存目录
-        yt_card2_left = ctk.CTkFrame(yt_scroll, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        yt_card2_left.pack(fill="x", pady=8, ipady=10, ipadx=10)
-
-        ctk.CTkLabel(yt_card2_left, text="保存目录", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(anchor="w", padx=15, pady=(10, 6))
-        yt_dir_row = ctk.CTkFrame(yt_card2_left, fg_color="transparent")
-        yt_dir_row.pack(fill="x", padx=15)
-
-        self.yt_dir_entry = ctk.CTkEntry(yt_dir_row, textvariable=self.yt_dir_var, height=36, corner_radius=8, border_color=c["border"], fg_color=c["bg_input"])
-        self.yt_dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(yt_dir_row, text="浏览", width=60, height=36, corner_radius=8, fg_color=c["bg_ghost"], text_color=c["text_button"], hover_color=c["ghost_hover"], command=self._yt_browse_dir).pack(side="right")
-
-        # 格式选择 + 编码选择 + 下载
-        yt_card3 = ctk.CTkFrame(yt_scroll, fg_color=c["bg_card"], corner_radius=self.CORNER_RADIUS, border_width=1, border_color=c["border"])
-        yt_card3.pack(fill="x", pady=8, ipady=10, ipadx=10)
-
-        ctk.CTkLabel(yt_card3, text="选择格式与编码", font=("Segoe UI", 13, "bold"), text_color=c["text_heading"]).pack(anchor="w", padx=15, pady=(10, 6))
-
-        yt_fmt_row = ctk.CTkFrame(yt_card3, fg_color="transparent")
-        yt_fmt_row.pack(fill="x", padx=15, pady=(0, 6))
-
-        self.yt_fmt_menu = ctk.CTkOptionMenu(
-            yt_fmt_row, variable=self.yt_fmt_var,
-            values=["最佳画质 (自动)", "4K", "2K", "1080p", "720p", "480p", "360p", "仅音频 (MP3)"],
-            fg_color=c["bg_input"], button_color=c["accent"],
-            button_hover_color=c["accent_hover"],
-            text_color="black", dropdown_text_color="black",
-            corner_radius=8, height=36
-        )
-        self.yt_fmt_menu.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        self.yt_codec_menu = ctk.CTkOptionMenu(
-            yt_fmt_row, variable=self.yt_codec_var,
-            values=["H.264", "H.265 (HEVC)", "AV1", "VP9", "不限制"],
-            fg_color=c["bg_input"], button_color=c["accent"],
-            button_hover_color=c["accent_hover"],
-            text_color="black", dropdown_text_color="black",
-            corner_radius=8, height=36, width=140
-        )
-        self.yt_codec_menu.pack(side="right", padx=(0, 4))
-
-        self.yt_container_menu = ctk.CTkOptionMenu(
-            yt_fmt_row, variable=self.yt_container_var,
-            values=["mp4", "mkv", "webm"],
-            fg_color=c["bg_input"], button_color=c["accent"],
-            button_hover_color=c["accent_hover"],
-            text_color="black", dropdown_text_color="black",
-            corner_radius=8, height=36, width=100
-        )
-        self.yt_container_menu.pack(side="right", padx=(0, 4))
-
-        # ── 下载片段控件 ──
-        yt_clip_row = ctk.CTkFrame(yt_card3, fg_color="transparent")
-        yt_clip_row.pack(fill="x", padx=15, pady=(4, 6))
-
-        self.yt_clip_chk = ctk.CTkCheckBox(
-            yt_clip_row, text="下载片段", font=("Segoe UI", 12),
-            checkbox_width=18, checkbox_height=18, corner_radius=4,
-            fg_color=c["accent"], variable=self.yt_clip_enabled
-        )
-        self.yt_clip_chk.pack(side="left", padx=(0, 12))
-
-        ctk.CTkLabel(yt_clip_row, text="起始", font=("Segoe UI", 11), text_color=c["text_secondary"]).pack(side="left", padx=(0, 4))
-        self.yt_clip_start_entry = ctk.CTkEntry(
-            yt_clip_row, textvariable=self.yt_clip_start,
-            placeholder_text="0:00", width=60, height=28,
-            corner_radius=6, border_color=c["border"], fg_color=c["bg_input"],
-            state="disabled"
-        )
-        self.yt_clip_start_entry.pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(yt_clip_row, text="结束", font=("Segoe UI", 11), text_color=c["text_secondary"]).pack(side="left", padx=(0, 4))
-        self.yt_clip_end_entry = ctk.CTkEntry(
-            yt_clip_row, textvariable=self.yt_clip_end,
-            placeholder_text="5:00", width=60, height=28,
-            corner_radius=6, border_color=c["border"], fg_color=c["bg_input"],
-            state="disabled"
-        )
-        self.yt_clip_end_entry.pack(side="left")
-
-        # ── 下载字幕 ──
-        yt_sub_row = ctk.CTkFrame(yt_card3, fg_color="transparent")
-        yt_sub_row.pack(fill="x", padx=15, pady=(0, 2))
-
-        self.yt_sub_chk = ctk.CTkCheckBox(
-            yt_sub_row, text="下载字幕 (SRT)", font=("Segoe UI", 12),
-            checkbox_width=18, checkbox_height=18, corner_radius=4,
-            fg_color=c["accent"], variable=self.yt_subtitle_enabled
-        )
-        self.yt_sub_chk.pack(side="left")
-
-        yt_btn_row = ctk.CTkFrame(yt_card3, fg_color="transparent")
-        yt_btn_row.pack(fill="x", padx=15, pady=(0, 10))
-
-        self.yt_download_btn = ctk.CTkButton(
-            yt_btn_row, text="⬇ 下载", font=("Segoe UI", 13, "bold"),
-            height=36, width=120, corner_radius=8,
-            fg_color=c["accent"], hover_color=c["accent_hover"],
-            command=self._yt_download
-        )
-        self.yt_download_btn.pack(side="right")
-
-        # 进度与状态
-        yt_progress_box = ctk.CTkFrame(yt_scroll, fg_color="transparent")
-        yt_progress_box.pack(fill="x", pady=(15, 5))
-
-        self.yt_status_label = ctk.CTkLabel(yt_progress_box, text="就绪", font=("Segoe UI", 12), text_color=c["text_secondary"])
-        self.yt_status_label.pack(side="left")
-
-        self.yt_progress_bar = ctk.CTkProgressBar(yt_scroll, height=6, corner_radius=3, progress_color=c["accent"], fg_color=c["border"])
-        self.yt_progress_bar.set(0)
-        self.yt_progress_bar.pack(fill="x", pady=(5, 15))
-
-        # 下载信息
-        self.yt_info_label = ctk.CTkLabel(yt_scroll, text="", font=("Segoe UI", 11), text_color=c["text_secondary"], justify="left")
-        self.yt_info_label.pack(anchor="w", fill="x")
-
-        # 互斥联动：VP9 <-> mp4；H.264 <-> 4K/2K
-        # trace callbacks removed during refactor — values read at download time
-
     # ========== YouTube 功能 ==========
 
     def _yt_browse_dir(self):
@@ -1719,7 +1372,7 @@ class InstagramDownloaderApp(ctk.CTk):
             save_config("yt_save_dir", dir_selected)
 
     def _yt_download(self):
-        if self.yt_running:
+        if self.yt_running or getattr(self, "yt_parsing", False):
             return
         url = self.yt_url_var.get().strip()
         if not url:
@@ -1744,6 +1397,8 @@ class InstagramDownloaderApp(ctk.CTk):
         fmt_key = fmt_map.get(fmt_choice, "best")
 
         self.yt_running = True
+        self._set_yt_progress(0)
+        self.yt_parse_btn.configure(state="disabled")
         self.yt_download_btn.configure(state="disabled", text="下载中...")
         codec_choice = self.yt_codec_var.get()
         container_choice = self.yt_container_var.get()
@@ -1760,7 +1415,7 @@ class InstagramDownloaderApp(ctk.CTk):
         try:
             def progress_callback(msg_or_pct):
                 if isinstance(msg_or_pct, (int, float)):
-                    self.after(0, lambda p=float(msg_or_pct): self.yt_progress_bar.set(p))
+                    self.after(0, lambda p=float(msg_or_pct): self._set_yt_progress(p))
                 else:
                     self.after(0, lambda m=msg_or_pct: self.yt_status_label.configure(text=m))
 
@@ -1781,17 +1436,21 @@ class InstagramDownloaderApp(ctk.CTk):
 
     def _yt_download_reset(self):
         self.yt_running = False
-        self.yt_download_btn.configure(state="normal", text="⬇ 下载")
+        self.yt_download_btn.configure(state="normal", text="下载")
+        self.yt_parse_btn.configure(state="normal")
 
     def _open_save_dir(self):
-        path = self.dir_var.get().strip()
+        path = (self.yt_dir_var if self.active_platform == "YouTube" else self.dir_var).get().strip()
         if path and os.path.exists(path):
             os.startfile(path)
         else:
-            self.status_label.configure(text="⚠️ 目录不存在，请先选择有效目录")
+            (self.yt_status_label if self.active_platform == "YouTube" else self.status_label).configure(text="目录不存在，请先选择有效目录")
 
     def _toggle_theme(self):
         """切换深色/亮色模式，带淡入淡出过渡动画"""
+        if self.running or self.yt_running or getattr(self, "yt_parsing", False):
+            (self.yt_status_label if self.active_platform == "YouTube" else self.status_label).configure(text="任务进行中，请完成后切换外观")
+            return
         def _do_switch():
             current = ctk.get_appearance_mode()
             if current == "Light":
@@ -1805,6 +1464,9 @@ class InstagramDownloaderApp(ctk.CTk):
             self._build_sidebar()
             self._build_main()
             self._render_history()
+            if self.image_data:
+                self._render_thumbnails(is_relayout=True)
+                self.download_btn.configure(state="normal" if self.selected_indices else "disabled")
             _fade_in(1)
 
         def _fade_out(step=1):
@@ -1976,6 +1638,8 @@ class InstagramDownloaderApp(ctk.CTk):
             self.selected_indices = set(range(len(self.image_data)))
 
         self.col_count, self.card_w, self.card_h = self._calc_grid()
+        if not self.image_data:
+            self._show_media_empty()
 
         for idx, (url, w, h, raw_pil, media_type) in enumerate(self.image_data):
             row, col = idx // self.col_count, idx % self.col_count
@@ -2098,6 +1762,11 @@ class InstagramDownloaderApp(ctk.CTk):
     def update_selection_summary(self):
         count = len(self.selected_indices)
         self.selection_summary.configure(text=f"已选择 {count} 个媒体")
+        self.download_btn.configure(state="normal" if count and not self.running else "disabled")
+        if count and count == len(self.image_data):
+            self.select_all_chk.select()
+        else:
+            self.select_all_chk.deselect()
 
     def clear_all(self):
         for widget in self.preview_grid.winfo_children():
@@ -2110,6 +1779,7 @@ class InstagramDownloaderApp(ctk.CTk):
         self.count_label.configure(text="")
         self.status_label.configure(text="就绪")
         self.update_selection_summary()
+        self._show_media_empty()
 
     def copy_selected_links(self):
         urls = [self.image_data[i][0] for i in self.selected_indices if i < len(self.image_data)]
@@ -2449,13 +2119,15 @@ class InstagramDownloaderApp(ctk.CTk):
         history = self._load_history()
 
         if not history:
-            self.history_btn.configure(text="")
+            self.history_btn.configure(text="查看全部 ›")
             self._hide_inline()
+            self._label(self.hist_inline, "暂无提取记录", 12, color=self.c["text_secondary"]).pack(pady=7)
+            self.hist_inline.pack(fill="x", padx=20, pady=(0,12))
             if self.history_expanded:
                 self._dismiss_history_popup()
             return
 
-        self.history_btn.configure(text="▼" if self.history_expanded else "▶")
+        self.history_btn.configure(text="收起记录 ‹" if self.history_expanded else "查看全部 ›")
 
         if self.history_expanded:
             self._hide_inline()
@@ -2473,9 +2145,9 @@ class InstagramDownloaderApp(ctk.CTk):
         url = first_item.get("url", "")
         label = f"{short}...  {count}项  {ts}"
         btn = ctk.CTkButton(
-            self.hist_inline, text=label, font=("Segoe UI", 10), anchor="w",
+            self.hist_inline, text=label, font=("Microsoft YaHei UI", 11), anchor="w", image=self._img("instagram",size=21),
             fg_color=c["history_bg"], text_color=c["text_button_dim"],
-            hover_color=c["ghost_hover"], corner_radius=6, height=30,
+            hover_color=c["ghost_hover"], corner_radius=8, height=42,
             command=lambda u=url: self._on_history_click(u)
         )
         btn.pack(fill="x", padx=5, pady=2)
@@ -2548,7 +2220,7 @@ class InstagramDownloaderApp(ctk.CTk):
             self.unbind("<Configure>", self._on_configure_id)
             self._on_configure_id = None
         history = self._load_history()
-        self.history_btn.configure(text="▶" if history else "")
+        self.history_btn.configure(text="查看全部 ›")
         if history:
             self._show_inline(history[0])
 
