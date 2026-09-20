@@ -311,7 +311,8 @@ class HarmonyUI:
             import yt_dlp
             import glob
             import sys
-            BASE_DIR=os.path.dirname(sys.executable) if getattr(sys,"frozen",False) else os.path.dirname(os.path.abspath(__file__))
+            # 源码布局为 <项目根>/src/harmony_ui.py，上移一级以定位 youtube_cookies.txt / runtime
+            BASE_DIR=os.path.dirname(sys.executable) if getattr(sys,"frozen",False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             opts={"quiet":True,"no_warnings":True,"noplaylist":True,"skip_download":True,"socket_timeout":30}
             cookie_path=os.path.join(BASE_DIR,"youtube_cookies.txt")
             if os.path.isfile(cookie_path):opts["cookiefile"]=cookie_path

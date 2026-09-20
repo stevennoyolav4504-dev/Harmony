@@ -29,10 +29,14 @@ from version import __version__
 
 # ---------- 打包路径兼容 ----------
 def _get_base_dir():
-    """源码运行时返回脚本目录；PyInstaller 打包后返回 exe 所在目录"""
+    """源码运行时返回项目根目录；PyInstaller 打包后返回 exe 所在目录
+
+    源码布局已收拢为 <项目根>/src/main.py，故需由脚本目录再上移一级，
+    保证 config.json / cookies.json / youtube_cookies.txt 等运行数据仍落在项目根。
+    """
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _get_internal_dir():
     """PyInstaller --onedir 时 _internal 与 exe 同级"""
@@ -1350,13 +1354,15 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                     return
                 except Exception:
                     pass
-        # 回退到 BASE_DIR
-        icon_ico = os.path.join(BASE_DIR, "icon.ico")
-        if os.path.exists(icon_ico):
-            try:
-                self.iconbitmap(default=icon_ico)
-            except Exception:
-                pass
+        # 回退：源码模式下 icon.ico 与 main.py 同级（<项目根>/src/icon.ico），其余情况回退项目根
+        for _icon_dir in (os.path.dirname(os.path.abspath(__file__)), BASE_DIR):
+            icon_ico = os.path.join(_icon_dir, "icon.ico")
+            if os.path.exists(icon_ico):
+                try:
+                    self.iconbitmap(default=icon_ico)
+                    return
+                except Exception:
+                    pass
 
     def _build_ui(self):
         self._apply_colors()

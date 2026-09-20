@@ -95,7 +95,7 @@ git clone https://github.com/stevennoyolav4504-dev/Harmony.git
 cd Harmony
 pip install -r requirements.txt
 playwright install chromium
-python main.py
+python src/main.py
 ```
 
 ### Windows 启动与打包
@@ -106,15 +106,15 @@ python -m venv venv
 .\venv\Scripts\python.exe -m pip install pyinstaller==6.22.0
 $env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\browsers"
 .\venv\Scripts\python.exe -m playwright install chromium
-.\venv\Scripts\python.exe main.py
+.\venv\Scripts\python.exe src\main.py
 ```
 
-之后可双击 `launch.vbs` 启动。运行 `build.bat` 生成 `dist/Harmony/Harmony.exe`，发布时携带整个目录。
+之后可双击 `src\launch.vbs` 启动。运行 `src\build.bat` 生成 `dist/Harmony/Harmony.exe`，发布时携带整个目录。
 视频转码、合并与片段下载需要 FFmpeg，可放到 `browsers/ffmpeg/ffmpeg.exe` 或加入系统 PATH。
 YouTube 使用的 Node 运行时可放到 `runtime/node/<版本>/node.exe`。
 
-界面代码位于 `harmony_ui.py`，绘制图标和插画的代码位于 `harmony_art.py`，版本位于 `version.py`。
-运行 `.\venv\Scripts\python.exe tests/test_ui.py` 执行离线界面回归测试。
+界面代码位于 `src/harmony_ui.py`，绘制图标和插画的代码位于 `src/harmony_art.py`，版本位于 `src/version.py`。
+运行 `.\venv\Scripts\python.exe src/tests/test_ui.py` 执行离线界面回归测试。
 
 
 ---

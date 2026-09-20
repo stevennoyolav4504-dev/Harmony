@@ -1,7 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('icon.ico', '.')]
+# spec 与 main.py / icon.ico / version_info.txt 同处 <项目根>\src，
+# 统一用 SPECPATH（spec 文件所在目录的绝对路径）定位，不依赖当前工作目录
+datas = [(os.path.join(SPECPATH, 'icon.ico'), '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('playwright')
@@ -19,7 +23,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['main.py'],
+    [os.path.join(SPECPATH, 'main.py')],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -49,8 +53,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.ico'],
-    version='version_info.txt',
+    icon=[os.path.join(SPECPATH, 'icon.ico')],
+    version=os.path.join(SPECPATH, 'version_info.txt'),
 )
 coll = COLLECT(
     exe,

@@ -1,6 +1,7 @@
-﻿# Harmony 启动脚本 - 使用项目 venv
+﻿# Harmony 启动脚本 - 使用项目 venv（本脚本位于 <项目根>\src，venv 在其上一级的项目根）
 $srcDir = Split-Path $MyInvocation.MyCommand.Path
-$pythonw = Join-Path $srcDir "venv\Scripts\pythonw.exe"
+$rootDir = Split-Path $srcDir
+$pythonw = Join-Path $rootDir "venv\Scripts\pythonw.exe"
 
 if (-not (Test-Path $pythonw)) {
     Add-Type -AssemblyName System.Windows.Forms
