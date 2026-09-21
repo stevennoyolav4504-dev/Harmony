@@ -1,6 +1,5 @@
 @echo off
-chcp 65001 >nul
-rem 本脚本位于 <项目根>\src，项目根目录为其上一级
+rem Build script lives in <project root>\src; project root is its parent directory.
 set "ROOT=%~dp0.."
 echo Harmony - Build desktop application
 "%ROOT%\venv\Scripts\python.exe" -m PyInstaller --noconfirm --distpath "%ROOT%\dist" --workpath "%ROOT%\build" "%~dp0Harmony.spec"
@@ -15,4 +14,3 @@ if exist "%ROOT%\runtime\node" (
 )
 copy /y "%~dp0icon.ico" "%ROOT%\dist\Harmony\icon.ico" >nul
 echo Build complete: dist\Harmony\Harmony.exe
-

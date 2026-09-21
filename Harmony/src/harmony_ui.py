@@ -121,19 +121,27 @@ class HarmonyUI:
         entry.pack(side="left",fill="x",expand=True)
         # CTkEntry doesn't display its own placeholder with a StringVar attached.
         hint=self._label(entry,"https://www.youtube.com/watch?v=..." if yt else "https://www.instagram.com/p/...",
-                         14,color=c["text_muted"],fg_color=c["bg_input"],anchor="w")
-        hint.bind("<Button-1>",lambda e:entry.focus_set())
+                         14,color=c["text_muted"],fg_color=c["bg_input"],anchor="w",cursor="xterm")
+        def focus_entry_from_hint(_event=None):
+            # The placeholder is a label placed over the native entry. Hide it
+            # before transferring focus so it never becomes a click-blocking
+            # layer over the editable area.
+            hint.place_forget()
+            entry.focus_set()
+            entry.icursor("end")
+            return "break"
+        hint.bind("<ButtonPress-1>",focus_entry_from_hint)
         def sync_hint(*_):
             if var.get() or entry._entry == entry.focus_get():hint.place_forget()
-            else:hint.place(x=7,rely=0.5,anchor="w",relwidth=0.95)
+            else:hint.place(x=7,rely=0.5,anchor="w")
         trace_id=var.trace_add("write",sync_hint)
         entry.bind("<FocusIn>",sync_hint,add="+")
         entry.bind("<FocusOut>",sync_hint,add="+")
         entry.bind("<Destroy>",lambda e:var.trace_remove("write",trace_id),add="+")
         sync_hint()
         entry.bind("<Return>",lambda e:self._yt_parse() if yt else self.fetch_images())
-        if yt: self.yt_url_entry,self.yt_parse_btn=entry,btn
-        else: self.url_entry,self.fetch_btn,self.clear_url_btn=entry,btn,clear
+        if yt: self.yt_url_entry,self.yt_url_hint,self.yt_parse_btn=entry,hint,btn
+        else: self.url_entry,self.url_hint,self.fetch_btn,self.clear_url_btn=entry,hint,btn,clear
 
     def _directory_row(self,parent,yt=False):
         c=self.c

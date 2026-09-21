@@ -32,6 +32,25 @@ class UIRegression(unittest.TestCase):
         a._switch_platform('Instagram');a.update()
         self.assertEqual(a.url_var.get(),'https://www.instagram.com/p/example/')
 
+    def test_link_placeholder_does_not_block_input(self):
+        a=self.app
+        for platform,var,entry,hint in [
+            ('Instagram',a.url_var,a.url_entry,a.url_hint),
+            ('YouTube',a.yt_url_var,a.yt_url_entry,a.yt_url_hint),
+        ]:
+            a._switch_platform(platform)
+            var.set('')
+            entry._entry.event_generate('<FocusOut>')
+            a.update()
+            self.assertTrue(hint.winfo_ismapped())
+            self.assertLess(hint.winfo_width(),entry.winfo_width())
+            hint._label.event_generate('<ButtonPress-1>',x=5,y=5)
+            a.update()
+            self.assertEqual(a.focus_get(),entry._entry)
+            self.assertFalse(hint.winfo_ismapped())
+            entry.insert(0,'https://example.com/test')
+            self.assertEqual(var.get(),'https://example.com/test')
+
     def test_selection_clear_restores_empty_state(self):
         a=self.app
         a.image_data=[('https://example.com/image.jpg',300,200,Image.new('RGB',(300,200),'pink'),'image')]
