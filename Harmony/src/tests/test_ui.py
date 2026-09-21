@@ -6,6 +6,7 @@ from unittest.mock import patch, Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import main
 from PIL import Image
+from windows_integration import inspect_window_icon_sizes
 
 
 class UIRegression(unittest.TestCase):
@@ -50,6 +51,17 @@ class UIRegression(unittest.TestCase):
             self.assertFalse(hint.winfo_ismapped())
             entry.insert(0,'https://example.com/test')
             self.assertEqual(var.get(),'https://example.com/test')
+
+    @unittest.skipUnless(sys.platform == 'win32','Windows icon integration')
+    def test_windows_uses_separate_native_icon_sizes(self):
+        a=self.app
+        a.update()
+        expected=a._windows_icon_state
+        actual=inspect_window_icon_sizes(a)
+        self.assertEqual(actual['large'],expected['large_size'])
+        self.assertEqual(actual['small'],expected['small_size'])
+        self.assertEqual(actual['small2'],expected['small_size'])
+        self.assertNotEqual(expected['large_icon'],expected['small_icon'])
 
     def test_selection_clear_restores_empty_state(self):
         a=self.app

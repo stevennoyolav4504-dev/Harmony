@@ -9,6 +9,7 @@ import json
 import time
 import random
 import base64
+import ctypes
 import logging
 import shutil
 import subprocess
@@ -26,6 +27,7 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from logging.handlers import RotatingFileHandler
 from version import __version__
+from windows_integration import apply_window_icons, set_app_user_model_id
 
 # ---------- 打包路径兼容 ----------
 def _get_base_dir():
@@ -1284,6 +1286,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.configure(fg_color=self.c["bg_root"])
 
     def __init__(self):
+        # Set this before Tk creates the native window so source runs are not
+        # grouped under pythonw.exe in the Windows taskbar.
+        set_app_user_model_id()
         super().__init__()
         self.title(f"Harmony {__version__}")
         self.geometry(f"{min(self.WINDOW_WIDTH, int(self.winfo_screenwidth() / self._get_window_scaling()) - 60)}x{min(self.WINDOW_HEIGHT, int(self.winfo_screenheight() / self._get_window_scaling()) - 80)}")
@@ -1342,27 +1347,31 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
     # ---------- 窗口图标 ----------
     def _set_window_icon(self):
-        """使用 icon.ico 设置窗口图标（通过 iconbitmap，兼容性最好）。
-        打包后 icon.ico 在 _internal 中，优先从 _get_internal_dir() 查找。"""
-        # 冻结模式下优先查找 _internal 目录
+        """Set a Tk fallback plus DPI-correct native Windows icon handles."""
+        icon_ico = None
         if getattr(sys, 'frozen', False):
             internal_dir = _get_internal_dir()
-            icon_ico = os.path.join(internal_dir, "icon.ico")
-            if os.path.exists(icon_ico):
-                try:
-                    self.iconbitmap(default=icon_ico)
-                    return
-                except Exception:
-                    pass
-        # 回退：源码模式下 icon.ico 与 main.py 同级（<项目根>/src/icon.ico），其余情况回退项目根
-        for _icon_dir in (os.path.dirname(os.path.abspath(__file__)), BASE_DIR):
-            icon_ico = os.path.join(_icon_dir, "icon.ico")
-            if os.path.exists(icon_ico):
-                try:
-                    self.iconbitmap(default=icon_ico)
-                    return
-                except Exception:
-                    pass
+            frozen_icon = os.path.join(internal_dir, "icon.ico")
+            if os.path.exists(frozen_icon):
+                icon_ico = frozen_icon
+        if icon_ico is None:
+            for _icon_dir in (os.path.dirname(os.path.abspath(__file__)), BASE_DIR):
+                candidate = os.path.join(_icon_dir, "icon.ico")
+                if os.path.exists(candidate):
+                    icon_ico = candidate
+                    break
+        if icon_ico:
+            try:
+                self.iconbitmap(default=icon_ico)
+            except Exception:
+                pass
+            if sys.platform == "win32":
+                def apply_native_icons():
+                    try:
+                        self._windows_icon_state = apply_window_icons(self, icon_ico)
+                    except (OSError, ctypes.ArgumentError) as error:
+                        logger.warning("Windows 图标设置失败，使用 Tk 回退图标: %s", error)
+                self.after_idle(apply_native_icons)
 
     def _build_ui(self):
         self._apply_colors()
