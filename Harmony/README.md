@@ -1,6 +1,6 @@
 # Harmony 2.0 — Instagram & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.0.0-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.0.3-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -11,10 +11,12 @@
 
 ## 2.0 更新
 
+2.0.3 按 REV.06 品牌手册更新标识：应用图标使用浅粉主背景与官方四色图形标（72% 占比），侧栏使用官方文字标，帮助页使用标准组合标，并统一弹窗图标。详见 [品牌素材说明](src/assets/brand/README.md)。
+
 新版采用浅紫色卡片布局、文字侧边栏与顶部平台切换，并换用三色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
 
-- [2.0.0 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.0.0)
+- [2.0.3 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.0.3)
 - [完整更新日志](CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
@@ -69,7 +71,7 @@
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.0.0-Windows-x64.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.0.3-Windows-x64.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 
@@ -114,7 +116,7 @@ $env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\browsers"
 YouTube 使用的 Node 运行时可放到 `runtime/node/<版本>/node.exe`。
 
 界面代码位于 `src/harmony_ui.py`，绘制图标和插画的代码位于 `src/harmony_art.py`，版本位于 `src/version.py`。
-运行 `.\venv\Scripts\python.exe src/tests/test_ui.py` 执行离线界面回归测试。
+运行 `.\venv\Scripts\python.exe -m unittest discover -s src/tests -v` 执行离线界面与品牌资产回归测试。
 
 
 ---

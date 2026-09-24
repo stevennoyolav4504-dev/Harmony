@@ -63,6 +63,25 @@ class UIRegression(unittest.TestCase):
         self.assertEqual(actual['small2'],expected['small_size'])
         self.assertNotEqual(expected['large_icon'],expected['small_icon'])
 
+    @unittest.skipUnless(sys.platform == 'win32','Windows icon integration')
+    def test_dialogs_keep_harmony_icons_after_library_default_callback(self):
+        a=self.app
+        for open_dialog in (a._show_settings,a._show_help,a._show_cookie_guide,a._open_proxy_dialog):
+            before=set(a.winfo_children())
+            open_dialog();a.update()
+            dialogs=[child for child in a.winfo_children() if child not in before and isinstance(child,main.ctk.CTkToplevel)]
+            self.assertEqual(len(dialogs),1)
+            dialog=dialogs[0]
+            try:
+                self.assertTrue(dialog._iconbitmap_method_called)
+                dialog._windows_set_titlebar_icon()
+                sizes=inspect_window_icon_sizes(dialog)
+                self.assertEqual(sizes['large'],dialog._windows_icon_state['large_size'])
+                self.assertEqual(sizes['small'],dialog._windows_icon_state['small_size'])
+            finally:
+                dialog.destroy()
+                a.focus_force();a.update()
+
     def test_selection_clear_restores_empty_state(self):
         a=self.app
         a.image_data=[('https://example.com/image.jpg',300,200,Image.new('RGB',(300,200),'pink'),'image')]

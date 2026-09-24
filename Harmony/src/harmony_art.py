@@ -1,9 +1,12 @@
 """Resolution-independent UI artwork, drawn from simple vector geometry."""
 import math
 from PIL import Image, ImageDraw, ImageFilter
+from harmony_brand import app_icon
 
 
 def icon(name, color="#253064", size=24):
+    if name == "logo":
+        return app_icon(size)
     scale = 4
     im = Image.new("RGBA", (size * scale, size * scale))
     d = ImageDraw.Draw(im)
@@ -26,14 +29,7 @@ def icon(name, color="#253064", size=24):
     def rect(box, radius=2, fill=None, outline=color, width=1.8):
         d.rounded_rectangle(tuple(v*k for v in box), radius*k, fill, outline, round(width*k))
 
-    if name == "logo":
-        arc((6,2,18,14),192,348,"#EB6397",1.65)
-        arc((1,8.5,11,19.5),104,254,"#12AFE2",1.65)
-        arc((13,8.5,23,19.5),-74,76,"#A1CA49",1.65)
-        line([(12,9),(12,16)],"#EB6397",1.5)
-        line([(9.5,13.5),(12,16),(14.5,13.5)],"#EB6397",1.5)
-        line([(8,19),(16,19)],"#EB6397",1.5)
-    elif name == "folder":
+    if name == "folder":
         line([(3,20),(3,5),(9,5),(11,8),(21,8),(20,20),(3,20)])
     elif name in ("clock", "history"):
         arc((3,3,21,21),0,360)

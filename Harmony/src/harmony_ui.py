@@ -3,12 +3,18 @@ import os
 import threading
 import customtkinter as ctk
 from harmony_art import icon, hero, empty_art
+from harmony_brand import PRIMARY_BACKGROUND, artwork
 from version import __version__
 
 FONT = "Microsoft YaHei UI"
 
 
 class HarmonyUI:
+    def _brand_image(self, kind, width):
+        pil = artwork(kind)
+        height = round(width * pil.height / pil.width)
+        return ctk.CTkImage(light_image=pil, dark_image=pil, size=(width,height))
+
     def _img(self, name, color=None, size=23):
         pil = icon(name, color or self.c["text_button"], size*2)
         return ctk.CTkImage(light_image=pil, dark_image=pil, size=(size,size))
@@ -47,7 +53,10 @@ class HarmonyUI:
         self.sidebar=ctk.CTkFrame(self,width=184,fg_color=c["bg_sidebar"],corner_radius=18)
         self.sidebar.pack(side="left",fill="y",padx=(10,0),pady=10)
         self.sidebar.pack_propagate(False)
-        self._label(self.sidebar,"Harmony",17,True,image=self._img("logo",size=32),compound="left",padx=10).pack(anchor="w",padx=16,pady=(16,34))
+        self.brand_header=ctk.CTkFrame(self.sidebar,fg_color=PRIMARY_BACKGROUND,corner_radius=12)
+        self.brand_header.pack(fill="x",padx=12,pady=(16,28))
+        self.brand_wordmark=self._label(self.brand_header,"",image=self._brand_image("wordmark",132))
+        self.brand_wordmark.pack(padx=14,pady=16)
         for name,text,cmd,active in [
             ("link","媒体提取",self._focus_media,True),
             ("folder","本地文件",self._open_save_dir,False),
@@ -60,7 +69,7 @@ class HarmonyUI:
                 text_color=c["accent"] if active else c["text_button"]).pack(padx=12,pady=6)
         footer=ctk.CTkFrame(self.sidebar,fg_color=c["bg_input"],border_color=c["border"],border_width=1,corner_radius=12)
         footer.pack(side="bottom",fill="x",padx=13,pady=16)
-        self._label(footer,f"Harmony {__version__}",13,True,image=self._img("crown",size=24),compound="left",padx=9).pack(pady=(12,0))
+        self._label(footer,f"v{__version__}",13,True,image=self._img("logo",size=32),compound="left",padx=9).pack(pady=(12,4))
         self._label(footer,"高效 · 简单 · 美观",10,color=c["text_secondary"]).pack(pady=(0,12))
 
     def _build_main(self):
@@ -285,6 +294,7 @@ class HarmonyUI:
 
     def _show_settings(self):
         popup=ctk.CTkToplevel(self);popup.title("Harmony · 设置");popup.geometry("400x280")
+        self._set_window_icon(popup)
         popup.configure(fg_color=self.c["bg_root"]);popup.transient(self);popup.grab_set()
         self._label(popup,"设置",23,True).pack(anchor="w",padx=25,pady=22)
         self._button(popup,"切换浅色 / 深色外观",lambda:(popup.destroy(),self._toggle_theme()),width=340).pack(pady=6)
@@ -292,9 +302,13 @@ class HarmonyUI:
         self._button(popup,"Instagram 登录与 Cookie",lambda:(popup.destroy(),self._show_cookie_guide()),width=340).pack(pady=6)
 
     def _show_help(self):
-        popup=ctk.CTkToplevel(self);popup.title("Harmony · 帮助");popup.geometry("490x340")
+        popup=ctk.CTkToplevel(self);popup.title("Harmony · 帮助");popup.geometry("490x520")
+        self._set_window_icon(popup)
         popup.configure(fg_color=self.c["bg_root"]);popup.transient(self);popup.grab_set()
-        self._label(popup,"让喜欢的内容，留在身边。",22,True).pack(anchor="w",padx=25,pady=(25,20))
+        brand=ctk.CTkFrame(popup,fg_color=PRIMARY_BACKGROUND,corner_radius=16)
+        brand.pack(fill="x",padx=25,pady=(20,0))
+        self._label(brand,"",image=self._brand_image("logo",200)).pack(padx=30,pady=22)
+        self._label(popup,"让喜欢的内容，留在身边。",22,True).pack(anchor="w",padx=25,pady=(18,16))
         self._label(popup,"Instagram\n粘贴帖子链接 → 提取 → 选择媒体 → 下载\n左键选择媒体，右键查看预览。\n\nYouTube / B站\n粘贴链接 → 解析视频 → 选择格式 → 下载\n可按需下载片段或 SRT 字幕。",14,justify="left").pack(anchor="w",padx=25)
         self._button(popup,"Instagram 登录帮助",lambda:(popup.destroy(),self._show_cookie_guide()),width=200).pack(anchor="w",padx=25,pady=20)
 

@@ -1346,8 +1346,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             self.after(500, self._show_cookie_guide)
 
     # ---------- 窗口图标 ----------
-    def _set_window_icon(self):
+    def _set_window_icon(self, window=None):
         """Set a Tk fallback plus DPI-correct native Windows icon handles."""
+        target = self if window is None else window
         icon_ico = None
         if getattr(sys, 'frozen', False):
             internal_dir = _get_internal_dir()
@@ -1362,16 +1363,19 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                     break
         if icon_ico:
             try:
-                self.iconbitmap(default=icon_ico)
+                if target is self:
+                    target.iconbitmap(default=icon_ico)
+                else:
+                    target.iconbitmap(icon_ico)
             except Exception:
                 pass
             if sys.platform == "win32":
                 def apply_native_icons():
                     try:
-                        self._windows_icon_state = apply_window_icons(self, icon_ico)
+                        target._windows_icon_state = apply_window_icons(target, icon_ico)
                     except (OSError, ctypes.ArgumentError) as error:
                         logger.warning("Windows 图标设置失败，使用 Tk 回退图标: %s", error)
-                self.after_idle(apply_native_icons)
+                target.after_idle(apply_native_icons)
 
     def _build_ui(self):
         self._apply_colors()
@@ -1717,6 +1721,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         c = self.c
 
         preview = ctk.CTkToplevel(self)
+        self._set_window_icon(preview)
         preview.title("预览")
         preview.grab_set()
         preview.configure(fg_color=c["bg_root"])
@@ -1847,6 +1852,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     def _show_cookie_guide(self):
         c = self.c
         dialog = ctk.CTkToplevel(self)
+        self._set_window_icon(dialog)
         dialog.title("如何获取 Cookie")
         dialog.geometry("580x420")
         dialog.resizable(False, False)
@@ -1879,7 +1885,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         btn_row.pack(fill="x", padx=20, pady=(0, 20))
         ctk.CTkButton(btn_row, text="一键登录", width=140, height=32, corner_radius=8, fg_color=c["accent"],
                       command=lambda: [dialog.destroy(), self._login_with_browser()]).pack(side="left")
-        ctk.CTkButton(btn_row, text="关闭", width=100, height=32, corner_radius=8, fg_color=c["ghost"],
+        ctk.CTkButton(btn_row, text="关闭", width=100, height=32, corner_radius=8, fg_color=c["bg_ghost"], text_color=c["text_button"],
                       command=dialog.destroy).pack(side="right")
 
     # ---------- 一键登录 ----------
@@ -2019,6 +2025,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     def _open_proxy_dialog(self):
         c = self.c
         dialog = ctk.CTkToplevel(self)
+        self._set_window_icon(dialog)
         dialog.title("代理设置")
         dialog.geometry("420x150")
         dialog.resizable(False, False)

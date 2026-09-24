@@ -2,6 +2,8 @@
 rem Build script lives in <project root>\src; project root is its parent directory.
 set "ROOT=%~dp0.."
 echo Harmony - Build desktop application
+"%ROOT%\venv\Scripts\python.exe" "%~dp0tools\build_brand_assets.py"
+if errorlevel 1 exit /b 1
 "%ROOT%\venv\Scripts\python.exe" -m PyInstaller --noconfirm --distpath "%ROOT%\dist" --workpath "%ROOT%\build" "%~dp0Harmony.spec"
 if errorlevel 1 exit /b 1
 if exist "%ROOT%\browsers" (

@@ -5,7 +5,10 @@ from PyInstaller.utils.hooks import collect_all
 
 # spec 与 main.py / icon.ico / version_info.txt 同处 <项目根>\src，
 # 统一用 SPECPATH（spec 文件所在目录的绝对路径）定位，不依赖当前工作目录
-datas = [(os.path.join(SPECPATH, 'icon.ico'), '.')]
+datas = [
+    (os.path.join(SPECPATH, 'icon.ico'), '.'),
+    (os.path.join(SPECPATH, 'assets', 'brand'), 'assets/brand'),
+]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('playwright')
