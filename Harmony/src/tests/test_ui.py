@@ -111,6 +111,35 @@ class UIRegression(unittest.TestCase):
             worker.return_value.start.assert_called_once()
         a._yt_download_reset()
 
+    def test_action_buttons_restore_brand_colors_after_disabled_state(self):
+        a=self.app
+        for button,fill in [(a.fetch_btn,'accent'),(a.yt_download_btn,'download')]:
+            button.configure(state='disabled')
+            self.assertEqual(button.cget('fg_color'),a.c['disabled_bg'])
+            button.configure(state='normal')
+            self.assertEqual(button.cget('fg_color'),a.c[fill])
+            self.assertEqual(button.cget('text_color'),a.c['on_'+fill])
+
+    def test_gradient_surface_dispatches_clicks_and_respects_disabled_state(self):
+        a=self.app
+        a._switch_platform('Instagram');a.update()
+        button=a.fetch_btn
+        previous=button.cget('command')
+        called=Mock()
+        try:
+            button.configure(command=called,state='normal',text='提取')
+            button._canvas.event_generate('<Enter>')
+            button._canvas.event_generate('<ButtonRelease-1>',x=button.winfo_width()//2,y=button.winfo_height()//2)
+            a.update()
+            called.assert_called_once()
+            button.configure(state='disabled')
+            button._canvas.event_generate('<Enter>')
+            button._canvas.event_generate('<ButtonRelease-1>',x=5,y=5)
+            a.update()
+            called.assert_called_once()
+        finally:
+            button.configure(command=previous,state='normal')
+
     def test_parse_validation_and_stale_result(self):
         a=self.app
         a.yt_url_var.set('invalid');a._yt_parse()
@@ -122,6 +151,19 @@ class UIRegression(unittest.TestCase):
         self.assertEqual(a.yt_info_label.cget('text'),'New title')
         a._set_yt_progress(.42)
         self.assertEqual(a.yt_percent_label.cget('text'),'42%')
+        for message,tone in [('下载完成: Example','success_text'),('下载失败: Example','error'),('正在下载…','accent_text')]:
+            a._set_yt_status(message)
+            self.assertEqual(a.yt_status_label.cget('text'),message)
+            self.assertEqual(a.yt_status_label.cget('text_color'),a.c[tone])
+
+    def test_activity_messages_are_visible_and_idle_area_collapses(self):
+        a=self.app
+        a._switch_platform('Instagram');a.clear_all();a.update()
+        self.assertFalse(a.status_label.winfo_ismapped())
+        a.status_label.configure(text='请输入有效的 Instagram 链接');a.update()
+        self.assertTrue(a.status_label.winfo_ismapped())
+        a.clear_all();a.update()
+        self.assertFalse(a.status_label.winfo_ismapped())
 
     def test_responsive_control_bounds(self):
         a=self.app

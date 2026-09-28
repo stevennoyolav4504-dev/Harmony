@@ -41,6 +41,25 @@ def _metric_for_dpi(metric: int, dpi: int) -> int:
     return max(1, int(value))
 
 
+def apply_titlebar_theme(tk_window, dark: bool) -> bool:
+    """Apply the native theme after Tk has created the final dialog wrapper."""
+    if sys.platform != "win32":
+        return False
+    try:
+        setter = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        setter.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+        setter.restype = ctypes.c_long
+        value = ctypes.c_int(bool(dark))
+        hwnd = _window_handle(tk_window)
+        # Same attributes supported by CTk, applied after transient() has run.
+        for attribute in (20, 19):
+            if setter(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                return True
+    except (AttributeError, OSError):
+        pass
+    return False
+
+
 def apply_window_icons(tk_window, icon_path: str) -> dict | None:
     """Install separate DPI-sized Win32 icons for the title bar and taskbar."""
     if sys.platform != "win32" or not os.path.isfile(icon_path):

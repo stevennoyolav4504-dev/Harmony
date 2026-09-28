@@ -8,6 +8,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = [
     (os.path.join(SPECPATH, 'icon.ico'), '.'),
     (os.path.join(SPECPATH, 'assets', 'brand'), 'assets/brand'),
+    (os.path.join(SPECPATH, 'assets', 'ui'), 'assets/ui'),
 ]
 binaries = []
 hiddenimports = []

@@ -1,10 +1,11 @@
 """Resolution-independent UI artwork, drawn from simple vector geometry."""
 import math
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 from harmony_brand import app_icon
+from harmony_theme import BLUE, PINK, GREEN, COLOR_SCHEMES
 
 
-def icon(name, color="#253064", size=24):
+def icon(name, color="#252228", size=24):
     if name == "logo":
         return app_icon(size)
     scale = 4
@@ -52,11 +53,11 @@ def icon(name, color="#253064", size=24):
         line([(12,13),(12,14)])
         line([(12,17),(12,17.1)])
     elif name == "instagram":
-        rect((3,3,21,21),5,outline="#CB46D9")
-        arc((7.5,7.5,16.5,16.5),0,360,fill="#EC5AA9")
-        d.ellipse((16*k,5.5*k,18.5*k,8*k), fill="#AC50F4")
+        rect((3,3,21,21),5,outline="#C13584")
+        arc((7.5,7.5,16.5,16.5),0,360,fill="#E4405F")
+        d.ellipse((16*k,5.5*k,18.5*k,8*k), fill="#F77737")
     elif name in ("youtube", "play"):
-        rect((2,5,22,19),4,fill="#FF3158" if name=="youtube" else color,outline=None)
+        rect((2,5,22,19),4,fill="#E62117" if name=="youtube" else color,outline=None)
         d.polygon([(10*k,8*k),(16*k,12*k),(10*k,16*k)], fill="white")
     elif name == "download":
         line([(12,3),(12,15)])
@@ -87,45 +88,37 @@ def icon(name, color="#253064", size=24):
     return im.resize((size,size), Image.Resampling.LANCZOS)
 
 
-def hero(platform, width=470, height=175):
-    """Soft orbit illustration, with scalable platform tiles."""
-    s=2
-    im=Image.new("RGBA",(width*s,height*s))
-    glow=Image.new("RGBA", im.size)
-    gd=ImageDraw.Draw(glow)
-    gd.ellipse((80*s,20*s,380*s,200*s),fill=(192,173,255,65))
-    im=Image.alpha_composite(im,glow.filter(ImageFilter.GaussianBlur(28*s)))
+def hero(platform, width=210, height=114, dark=False):
+    """Flat segmented orbit: a UI pattern, separate from the official logo."""
+    s=3
+    c=COLOR_SCHEMES["Dark" if dark else "Light"]
+    im=Image.new("RGBA",(210*s,114*s))
     d=ImageDraw.Draw(im)
-    d.ellipse((30*s,45*s,360*s,142*s),outline=(255,255,255,220),width=2*s)
-    for x,y,sz,angle,primary in [(92,91,66,20,False),(290,115,49,20,False),(180,30,126,17,True)]:
-        tile=Image.new("RGBA",(sz*s,sz*s))
-        mask=Image.new("L",tile.size)
-        ImageDraw.Draw(mask).rounded_rectangle((0,0,sz*s-1,sz*s-1),radius=20*s,fill=255)
-        td=ImageDraw.Draw(tile)
-        a,b=((255,164,201),(185,130,246)) if platform=="Instagram" else ((255,166,203),(247,83,150))
-        if not primary: a,b=(221,217,255),(180,177,248)
-        for yy in range(sz*s):
-            t=yy/(sz*s)
-            td.line((0,yy,sz*s,yy),fill=tuple(int(a[i]*(1-t)+b[i]*t) for i in range(3))+((230 if primary else 140),))
-        tile.putalpha(mask)
-        if primary and platform=="Instagram":
-            inset=sz*.25*s
-            td=ImageDraw.Draw(tile)
-            td.rounded_rectangle((inset,inset,sz*s-inset,sz*s-inset),radius=15*s,outline="white",width=5*s)
-            td.ellipse((sz*.38*s,sz*.38*s,sz*.62*s,sz*.62*s),outline="white",width=4*s)
-            td.ellipse((sz*.62*s,sz*.29*s,sz*.68*s,sz*.35*s),fill="white")
-        else:
-            td=ImageDraw.Draw(tile)
-            td.polygon([(sz*.40*s,sz*.30*s),(sz*.40*s,sz*.70*s),(sz*.72*s,sz*.5*s)], fill=(255,255,255,235))
-        tile=tile.rotate(angle,Image.Resampling.BICUBIC,expand=True)
-        im.alpha_composite(tile,(int(x*s),int(y*s)))
+    for start,end,color in [(155,245,BLUE),(270,350,PINK),(15,115,GREEN)]:
+        points=[((105+82*math.cos(math.radians(t)))*s,
+                 (57+43*math.sin(math.radians(t)))*s) for t in range(start,end+1)]
+        d.line(points,fill=color,width=5*s,joint="curve")
+        for x,y in (points[0],points[-1]):
+            d.ellipse((x-2.5*s,y-2.5*s,x+2.5*s,y+2.5*s),fill=color)
+    d.rounded_rectangle((75*s,27*s,135*s,87*s),radius=18*s,
+                        fill=c["bg_card"],outline=c["border"],width=s)
+    im.alpha_composite(icon(platform.lower(),size=34*s),(88*s,40*s))
     return im.resize((width,height),Image.Resampling.LANCZOS)
 
 
-def empty_art(video=False):
-    im=Image.new("RGBA",(128,80))
-    for x,y,sz,angle in [(13,18,50,18),(63,6,54,-18),(38,24,55,0)]:
-        tile=icon("play" if video else "image", "#D5CAFF",sz)
+def empty_art(video=False, dark=False):
+    s=3
+    im=Image.new("RGBA",(128*s,80*s))
+    for color,angle,x,y in [("#DCE5FF",18,14,18),("#FCE0EF",-17,66,4)]:
+        tile=Image.new("RGBA",(52*s,59*s))
+        ImageDraw.Draw(tile).rounded_rectangle((2*s,2*s,50*s,57*s),radius=5*s,fill=color)
         tile=tile.rotate(angle,Image.Resampling.BICUBIC,expand=True)
-        im.alpha_composite(tile,(x,y))
-    return im
+        im.alpha_composite(tile,(x*s,y*s))
+    d=ImageDraw.Draw(im)
+    d.rounded_rectangle((43*s,22*s,99*s,76*s),radius=6*s,fill="#FFC0E2",outline="white",width=2*s)
+    if video:
+        d.polygon([(63*s,35*s),(63*s,62*s),(83*s,49*s)],fill="white")
+    else:
+        d.ellipse((68*s,32*s,80*s,44*s),fill="white")
+        d.polygon([(49*s,66*s),(62*s,49*s),(73*s,60*s),(81*s,53*s),(94*s,66*s)],fill="white")
+    return im.resize((128,80),Image.Resampling.LANCZOS)

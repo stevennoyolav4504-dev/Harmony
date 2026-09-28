@@ -1,6 +1,6 @@
 # Instagram 图片提取器 - 最终融合版
 # 提取逻辑：Marvis 精准 DOM 提取（div._aagu + 推荐帖过滤）
-# UI 设计：Gemini SaaS 风格（侧边栏 + 卡片 + 紫色主题）
+# UI 设计：Harmony REV.06 品牌主题（侧边栏、卡片与蓝粉绿白配色）
 # 功能：多选、全选、分辨率显示、暗色切换、批量下载
 
 import os
@@ -27,7 +27,8 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from logging.handlers import RotatingFileHandler
 from version import __version__
-from windows_integration import apply_window_icons, set_app_user_model_id
+from windows_integration import apply_window_icons, apply_titlebar_theme, set_app_user_model_id
+from harmony_theme import COLOR_SCHEMES, select_font
 
 # ---------- 打包路径兼容 ----------
 def _get_base_dir():
@@ -731,7 +732,7 @@ def create_card_thumbnail(pil_img, resolution_str="1080 × 1350", is_selected=Tr
     # 右上角选中徽章
     if is_selected:
         badge_x, badge_y = w - 22, 6
-        draw.ellipse([badge_x, badge_y, badge_x + 16, badge_y + 16], fill=(168, 85, 247, 255))
+        draw.ellipse([badge_x, badge_y, badge_x + 16, badge_y + 16], fill=(244, 84, 164, 255))
         draw.line([badge_x + 4, badge_y + 8, badge_x + 7, badge_y + 11], fill=(255, 255, 255), width=2)
         draw.line([badge_x + 7, badge_y + 11, badge_x + 12, badge_y + 5], fill=(255, 255, 255), width=2)
 
@@ -741,13 +742,13 @@ def create_card_thumbnail(pil_img, resolution_str="1080 × 1350", is_selected=Tr
 def _make_video_placeholder_card(res_str, is_selected=True, target_size=(120, 150)):
     """生成视频占位图（灰色背景 + 播放三角 + 标签 + 徽章）"""
     w, h = target_size
-    card = Image.new("RGBA", target_size, (30, 30, 45, 255))
+    card = Image.new("RGBA", target_size, (37, 34, 40, 255))
     draw = ImageDraw.Draw(card)
     # 居中播放三角，大小随卡片缩放
     tri_size = max(4, min(w, h) // 6)
     cx, cy = w // 2, h // 2
     triangle = [(cx - tri_size, cy - tri_size), (cx - tri_size, cy + tri_size), (cx + tri_size, cy)]
-    draw.polygon(triangle, fill=(200, 200, 200, 255))
+    draw.polygon(triangle, fill=(7, 186, 238, 255))
 
     # 左下角标签
     pill_w, pill_h = min(w - 12, int(w * 0.6)), max(12, int(h * 0.12))
@@ -760,7 +761,7 @@ def _make_video_placeholder_card(res_str, is_selected=True, target_size=(120, 15
     badge_size = max(10, int(min(w, h) * 0.13))
     if is_selected:
         badge_x, badge_y = w - badge_size - 6, 6
-        draw.ellipse([badge_x, badge_y, badge_x + badge_size, badge_y + badge_size], fill=(168, 85, 247, 255))
+        draw.ellipse([badge_x, badge_y, badge_x + badge_size, badge_y + badge_size], fill=(244, 84, 164, 255))
         draw.line([badge_x + badge_size * 0.25, badge_y + badge_size * 0.5,
                     badge_x + badge_size * 0.45, badge_y + badge_size * 0.68], fill=(255, 255, 255), width=2)
         draw.line([badge_x + badge_size * 0.45, badge_y + badge_size * 0.68,
@@ -1259,24 +1260,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     REQUEST_TIMEOUT = 60
     PROGRESS_UPDATE_INTERVAL = 150
 
-    COLOR_SCHEMES = {
-        "Light": {
-            "bg_root": "#F0F3FF", "bg_card": "#FFFFFF", "bg_input": "#F8F9FF",
-            "bg_sidebar": "#FFFFFF", "bg_ghost": "#F0EEFC", "border": "#DFE2FA",
-            "text_primary": "#111537", "text_heading": "#151B43", "text_secondary": "#7C85AF",
-            "text_muted": "#A0A8CA", "text_button": "#303968", "text_button_dim": "#626E9E",
-            "accent": "#9850FF", "accent_hover": "#8138ED", "accent_bg": "#F2ECFF",
-            "ghost_hover": "#E9E5FB", "history_bg": "#F7F8FD", "placeholder": "#9850FF",
-        },
-        "Dark": {
-            "bg_root": "#0B1120", "bg_card": "#1E293B", "bg_input": "#1E293B",
-            "bg_sidebar": "#0F172A", "bg_ghost": "#1E293B", "border": "#334155",
-            "text_primary": "#F1F5F9", "text_heading": "#F1F5F9", "text_secondary": "#94A3B8",
-            "text_muted": "#64748B", "text_button": "#CBD5E1", "text_button_dim": "#94A3B8",
-            "accent": "#A855F7", "accent_hover": "#9333EA", "accent_bg": "#312E81",
-            "ghost_hover": "#334155", "history_bg": "#0F172A", "placeholder": "#A855F7",
-        },
-    }
+    COLOR_SCHEMES = COLOR_SCHEMES
 
     def _get_colors(self):
         return self.COLOR_SCHEMES.get(ctk.get_appearance_mode(), self.COLOR_SCHEMES["Light"])
@@ -1290,6 +1274,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         # grouped under pythonw.exe in the Windows taskbar.
         set_app_user_model_id()
         super().__init__()
+        self.ui_font = select_font(self)
         self.title(f"Harmony {__version__}")
         self.geometry(f"{min(self.WINDOW_WIDTH, int(self.winfo_screenwidth() / self._get_window_scaling()) - 60)}x{min(self.WINDOW_HEIGHT, int(self.winfo_screenheight() / self._get_window_scaling()) - 80)}")
         self.minsize(self.MIN_WIDTH, self.MIN_HEIGHT)
@@ -1373,6 +1358,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                 def apply_native_icons():
                     try:
                         target._windows_icon_state = apply_window_icons(target, icon_ico)
+                        apply_titlebar_theme(target, ctk.get_appearance_mode()=="Dark")
                     except (OSError, ctypes.ArgumentError) as error:
                         logger.warning("Windows 图标设置失败，使用 Tk 回退图标: %s", error)
                 target.after_idle(apply_native_icons)
@@ -1395,11 +1381,11 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             return
         url = self.yt_url_var.get().strip()
         if not url:
-            self.yt_status_label.configure(text="请先粘贴视频链接")
+            self.yt_status_label.configure(text="请先粘贴视频链接",text_color=self.c["warning"])
             return
         save_dir = self.yt_dir_var.get().strip()
         if not save_dir:
-            self.yt_status_label.configure(text="请先设置保存目录")
+            self.yt_status_label.configure(text="请先设置保存目录",text_color=self.c["warning"])
             return
 
         fmt_choice = self.yt_fmt_var.get()
@@ -1416,6 +1402,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         fmt_key = fmt_map.get(fmt_choice, "best")
 
         self.yt_running = True
+        self.yt_status_label.configure(text_color=self.c["accent_text"])
         self._set_yt_progress(0)
         self.yt_parse_btn.configure(state="disabled")
         self.yt_download_btn.configure(state="disabled", text="下载中...")
@@ -1436,7 +1423,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                 if isinstance(msg_or_pct, (int, float)):
                     self.after(0, lambda p=float(msg_or_pct): self._set_yt_progress(p))
                 else:
-                    self.after(0, lambda m=msg_or_pct: self.yt_status_label.configure(text=m))
+                    self.after(0, lambda m=msg_or_pct: self._set_yt_status(m))
 
             def info_callback(info):
                 self.after(0, lambda i=info: self.yt_info_label.configure(text=i))
@@ -1449,7 +1436,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         except Exception as e:
             import logging
             logging.getLogger("Harmony").exception(f"下载线程异常: {e}")
-            self.after(0, lambda m=str(e): self.yt_status_label.configure(text=f"内部错误: {m}"))
+            self.after(0, lambda m=str(e): self.yt_status_label.configure(text=f"内部错误: {m}",text_color=self.c["error"]))
         finally:
             self.after(0, self._yt_download_reset)
 
@@ -1522,11 +1509,12 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         url = self.url_var.get().strip()
         if not url or "instagram.com" not in url:
-            self.status_label.configure(text="⚠️ 请输入有效的 Instagram 链接")
+            self.status_label.configure(text="请输入有效的 Instagram 链接",text_color=self.c["warning"])
             return
 
         self.running = True
-        self.status_label.configure(text="正在提取...")
+        self.status_label.configure(text="正在提取…",text_color=self.c["accent_text"])
+        self.progress_bar.configure(progress_color=self.c["accent"])
         self.progress_bar.set(0.2)
         self.download_btn.configure(state="disabled")
         self.clear_all()
@@ -1554,11 +1542,11 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     def _fetch_complete(self, media_list, error):
         if error:
             self.running = False
-            self.status_label.configure(text=f"错误: {error}")
+            self.status_label.configure(text=f"错误: {error}",text_color=self.c["error"])
             return
         if not media_list:
             self.running = False
-            self.status_label.configure(text="未提取到媒体内容")
+            self.status_label.configure(text="未提取到媒体内容",text_color=self.c["text_secondary"])
             return
 
         img_count = sum(1 for m in media_list if m[1] == 'image')
@@ -1687,7 +1675,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             return
 
         self.running = False
-        self.status_label.configure(text="完成")
+        self.status_label.configure(text="完成",text_color=self.c["success_text"])
+        self.progress_bar.configure(progress_color=self.c["success"])
         self.progress_bar.set(1.0)
         self.download_btn.configure(state="normal")
         self.update_selection_summary()
@@ -1755,7 +1744,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         type_label = "视频" if media_type == 'video' else "图片"
         res_text = f"{type_label}  |  {w} × {h}" if (w and h) else type_label
-        info = ctk.CTkLabel(preview, text=res_text, font=("Segoe UI", 12), text_color=c["text_secondary"])
+        info = ctk.CTkLabel(preview, text=res_text, font=(self.ui_font, 12), text_color=c["text_secondary"])
         info.pack(pady=(0, 10))
 
         preview.bind("<Escape>", lambda e: preview.destroy())
@@ -1797,7 +1786,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.download_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self.count_label.configure(text="")
-        self.status_label.configure(text="就绪")
+        self.status_label.configure(text="就绪",text_color=self.c["text_secondary"])
+        self.progress_bar.configure(progress_color=self.c["accent"])
         self.update_selection_summary()
         self._show_media_empty()
 
@@ -1806,9 +1796,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         if urls:
             self.clipboard_clear()
             self.clipboard_append("\n".join(urls))
-            self.status_label.configure(text=f"已复制 {len(urls)} 个链接到剪贴板")
+            self.status_label.configure(text=f"已复制 {len(urls)} 个链接到剪贴板",text_color=self.c["success_text"])
         else:
-            self.status_label.configure(text="请先选择媒体")
+            self.status_label.configure(text="请先选择媒体",text_color=self.c["warning"])
 
     def download_all(self):
         if not self.image_data or self.running:
@@ -1816,19 +1806,20 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         save_dir = self.dir_var.get().strip()
         if not save_dir:
-            self.status_label.configure(text="请选择保存目录")
+            self.status_label.configure(text="请选择保存目录",text_color=self.c["warning"])
             return
 
         selected = [self.image_data[i] for i in self.selected_indices if i < len(self.image_data)]
         if not selected:
-            self.status_label.configure(text="没有选中媒体")
+            self.status_label.configure(text="没有选中媒体",text_color=self.c["warning"])
             return
 
         media_list = [(url, media_type, "") for url, w, h, pil, media_type in selected]
 
         self.running = True
         self.download_btn.configure(state="disabled")
-        self.status_label.configure(text=f"正在下载 {len(media_list)} 个媒体...")
+        self.status_label.configure(text=f"正在下载 {len(media_list)} 个媒体…",text_color=self.c["accent_text"])
+        self.progress_bar.configure(progress_color=self.c["accent"])
         self.progress_bar.set(0)
 
         threading.Thread(target=self._download_worker, args=(media_list, save_dir), daemon=True).start()
@@ -1845,7 +1836,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     def _download_complete(self):
         self.running = False
         self.download_btn.configure(state="normal")
-        self.status_label.configure(text="下载完成！")
+        self.status_label.configure(text="下载完成！",text_color=self.c["success_text"])
+        self.progress_bar.configure(progress_color=self.c["success"])
         self.progress_bar.set(1.0)
 
     # ---------- Cookie 引导 ----------
@@ -1875,18 +1867,16 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             "提示：Cookie 通常 1~3 个月过期，过期后按上述步骤重新获取即可。"
         )
 
-        frame = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        frame = ctk.CTkScrollableFrame(dialog, fg_color="transparent",scrollbar_button_color=c["border"],scrollbar_button_hover_color=c["text_muted"])
         frame.pack(fill="both", expand=True, padx=20, pady=(20, 10))
 
-        ctk.CTkLabel(frame, text="📖 如何获取 Cookie", font=("Segoe UI", 16, "bold"), text_color=c["text_heading"]).pack(anchor="w", pady=(0, 12))
-        ctk.CTkLabel(frame, text=guide_text, font=("Segoe UI", 12), text_color=c["text_button"], wraplength=520, justify="left").pack(anchor="w")
+        self._label(frame,"如何获取 Cookie",20,True).pack(anchor="w",pady=(0,12))
+        self._label(frame,guide_text,13,color=c["text_button"],wraplength=500,justify="left").pack(anchor="w")
 
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(0, 20))
-        ctk.CTkButton(btn_row, text="一键登录", width=140, height=32, corner_radius=8, fg_color=c["accent"],
-                      command=lambda: [dialog.destroy(), self._login_with_browser()]).pack(side="left")
-        ctk.CTkButton(btn_row, text="关闭", width=100, height=32, corner_radius=8, fg_color=c["bg_ghost"], text_color=c["text_button"],
-                      command=dialog.destroy).pack(side="right")
+        self._button(btn_row,"一键登录",lambda: [dialog.destroy(), self._login_with_browser()],True,width=140,height=36).pack(side="left")
+        self._button(btn_row,"关闭",dialog.destroy,width=100,height=36).pack(side="right")
 
     # ---------- 一键登录 ----------
     def _login_with_browser(self):
@@ -2032,15 +2022,15 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         dialog.grab_set()
         dialog.configure(fg_color=c["bg_card"])
 
-        ctk.CTkLabel(dialog, text="HTTP 代理", font=("Segoe UI", 14, "bold"), text_color=c["text_heading"]).pack(anchor="w", padx=20, pady=(20, 8))
+        self._label(dialog,"HTTP 代理",16,True).pack(anchor="w",padx=20,pady=(20,8))
 
-        entry = ctk.CTkEntry(dialog, textvariable=self.proxy_var, placeholder_text="http://user:pass@ip:port", height=36, corner_radius=8, border_color=c["border"], fg_color=c["bg_input"])
+        entry = ctk.CTkEntry(dialog, textvariable=self.proxy_var, placeholder_text="http://user:pass@ip:port", height=36, corner_radius=8, border_width=1,border_color=c["border"],fg_color=c["bg_input"],text_color=c["text_primary"],placeholder_text_color=c["text_muted"],font=(self.ui_font,13))
         entry.pack(fill="x", padx=20, pady=(0, 12))
 
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack(fill="x", padx=20)
-        ctk.CTkButton(btn_row, text="取消", width=80, height=32, corner_radius=8, fg_color=c["bg_ghost"], text_color=c["text_button"], command=dialog.destroy).pack(side="right", padx=4)
-        ctk.CTkButton(btn_row, text="确定", width=80, height=32, corner_radius=8, fg_color=c["accent"], command=dialog.destroy).pack(side="right", padx=4)
+        self._button(btn_row,"取消",dialog.destroy,width=80,height=32).pack(side="right",padx=4)
+        self._button(btn_row,"确定",dialog.destroy,True,width=80,height=32).pack(side="right",padx=4)
 
     # ---------- 缓存 ----------
     CACHE_DIR = os.path.join(BASE_DIR, ".image_cache")
@@ -2143,7 +2133,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         if not history:
             self.history_btn.configure(text="查看全部 ›")
             self._hide_inline()
-            self._label(self.hist_inline, "暂无提取记录", 12, color=self.c["text_secondary"]).pack(pady=7)
+            self._label(self.hist_inline, "  暂无提取记录", 13, color=self.c["text_secondary"],
+                        image=self._img("instagram",size=23),compound="left",height=50,
+                        fg_color=self.c["history_bg"],corner_radius=10).pack(fill="x",pady=3)
             self.hist_inline.pack(fill="x", padx=20, pady=(0,12))
             if self.history_expanded:
                 self._dismiss_history_popup()
@@ -2167,9 +2159,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         url = first_item.get("url", "")
         label = f"{short}...  {count}项  {ts}"
         btn = ctk.CTkButton(
-            self.hist_inline, text=label, font=("Microsoft YaHei UI", 11), anchor="w", image=self._img("instagram",size=21),
+            self.hist_inline, text=label, font=(self.ui_font, 12), anchor="w", image=self._img("instagram",size=21),
             fg_color=c["history_bg"], text_color=c["text_button_dim"],
-            hover_color=c["ghost_hover"], corner_radius=8, height=42,
+            hover_color=c["ghost_hover"], corner_radius=10, height=50,
             command=lambda u=url: self._on_history_click(u)
         )
         btn.pack(fill="x", padx=5, pady=2)
@@ -2206,7 +2198,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             url = h.get("url", "")
             label = f"{short}...  {count}项  {ts}"
             btn = ctk.CTkButton(
-                inner, text=label, font=("Segoe UI", 10), anchor="w",
+                inner, text=label, font=(self.ui_font, 11), anchor="w",
                 fg_color="transparent", text_color=c["text_button"],
                 hover_color=c["ghost_hover"], corner_radius=6, height=30,
                 command=lambda u=url: self._on_dropdown_click(u)
