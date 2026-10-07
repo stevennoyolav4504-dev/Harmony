@@ -13,6 +13,7 @@ class BrandButton(ctk.CTkButton):
     """Keep disabled actions visibly distinct while using CTk's normal state API."""
     def __init__(self, *args, disabled_fg_color, disabled_image=None, gradient=None, **kwargs):
         self._gradient=gradient
+        self._gradient_key=None
         self._enabled_fill = kwargs["fg_color"]
         self._disabled_fill = disabled_fg_color
         self._enabled_image = kwargs.get("image")
@@ -34,9 +35,14 @@ class BrandButton(ctk.CTkButton):
             start,end=("#FFB7D0","#F47BBB") if self._gradient[0]=="#FF9FB5" else ("#AFCEEF","#92B7E9")
         elif self._mouse_inside:
             start,end=end,self._apply_appearance_mode(self._hover_color)
-        self._gradient_photo=ImageTk.PhotoImage(button_surface(width,height,round(10*s),start,end),master=self)
+        key=(width,height,s,start,end,self._text,str(self._apply_font_scaling(self._font)),id(self._enabled_image),self._get_appearance_mode())
+        if key==self._gradient_key:
+            self._canvas.tag_raise("gradient")
+            return
+        photo=ImageTk.PhotoImage(button_surface(width,height,round(10*s),start,end),master=self)
         canvas=self._canvas;canvas.delete("gradient")
-        canvas.create_image(0,0,image=self._gradient_photo,anchor="nw",tags="gradient")
+        canvas.create_image(0,0,image=photo,anchor="nw",tags="gradient")
+        self._gradient_photo=photo
         font=tkfont.Font(root=self,font=self._apply_font_scaling(self._font))
         text_width=font.measure(self._text)
         gap=10*s if self._image else 0
@@ -49,6 +55,7 @@ class BrandButton(ctk.CTkButton):
             canvas.create_image(x+image_width/2,height/2,image=self._gradient_icon,tags="gradient")
         canvas.create_text(x+image_width+gap,height/2,text=self._text,font=self._apply_font_scaling(self._font),
                            anchor="w",fill="#FFFFFF",tags="gradient")
+        self._gradient_key=key
 
     def _on_enter(self,event=None):
         super()._on_enter(event)

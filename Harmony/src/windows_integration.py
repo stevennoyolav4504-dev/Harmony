@@ -60,6 +60,22 @@ def apply_titlebar_theme(tk_window, dark: bool) -> bool:
     return False
 
 
+def refresh_restored_window(tk_window) -> bool:
+    """Refresh existing native child surfaces together, without erasing them."""
+    if sys.platform != "win32":
+        return False
+
+
+    try:
+        repaint=ctypes.windll.user32.RedrawWindow
+        repaint.argtypes=[wintypes.HWND,ctypes.c_void_p,wintypes.HRGN,wintypes.UINT]
+        repaint.restype=wintypes.BOOL
+        # INVALIDATE | ALLCHILDREN | UPDATENOW | NOERASE. No UI is recreated.
+        return bool(repaint(_window_handle(tk_window),None,None,0x0001|0x0080|0x0100|0x0020))
+    except (AttributeError,OSError):
+        return False
+
+
 def apply_window_icons(tk_window, icon_path: str) -> dict | None:
     """Install separate DPI-sized Win32 icons for the title bar and taskbar."""
     if sys.platform != "win32" or not os.path.isfile(icon_path):

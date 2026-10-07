@@ -13,9 +13,9 @@ def _hero_asset(platform):
         return image.convert("RGBA")
 
 
-@lru_cache(maxsize=20)
-def wash(width, height, dark=False):
-    """A soft mesh surface, generated at low resolution and smoothly enlarged."""
+@lru_cache(maxsize=2)
+def _wash_base(dark):
+    """Compute the mesh once per theme, independently of window dimensions."""
     w,h=160,120
     base=(32,29,35) if dark else (255,242,248)
     glows=[(.23,.12,(70,43,63) if dark else (255,217,235),.22),
@@ -31,27 +31,45 @@ def wash(width, height, dark=False):
                 rgb=[v+(target-v)*weight for v,target in zip(rgb,color)]
             pixels.append(tuple(round(v) for v in rgb))
     im=Image.new("RGB",(w,h));im.putdata(pixels)
-    return im.resize((max(1,width),max(1,height)),Image.Resampling.BICUBIC)
+    return im
+
+
+@lru_cache(maxsize=12)
+def wash(width, height, dark=False):
+    return _wash_base(dark).resize((max(1,width),max(1,height)),Image.Resampling.BICUBIC)
+
+
+@lru_cache(maxsize=8)
+def _scaled_hero(platform,width,height):
+    return _hero_asset(platform).resize((width,height),Image.Resampling.LANCZOS)
 
 
 class PageWash(tk.Canvas):
     """A background under page widgets, never a layer over input controls."""
     def __init__(self,parent,dark=False):
-        super().__init__(parent,highlightthickness=0,bd=0)
+        super().__init__(parent,highlightthickness=0,bd=0,bg="#201D23" if dark else "#FFF2F8")
         self.dark=dark
+        self._paint_key=None
+        self._image_item=self.create_image(0,0,anchor="nw")
         self.place(x=0,y=0,relwidth=1,relheight=1)
         self.tk.call("lower",self._w)
         self.bind("<Configure>",self._paint)
 
     def _paint(self,event):
-        self._photo=ImageTk.PhotoImage(wash(event.width,event.height,self.dark),master=self)
-        self.delete("all");self.create_image(0,0,image=self._photo,anchor="nw")
+        key=(event.width,event.height,self.dark)
+        if key==self._paint_key or min(event.width,event.height)<=1:return
+        # Retain both the canvas item and old photo until its replacement is ready.
+        photo=ImageTk.PhotoImage(wash(*key),master=self)
+        self.itemconfigure(self._image_item,image=photo)
+        self._photo=photo
+        self._paint_key=key
 
 
 class HeroHeader(ctk.CTkFrame):
     """Canvas typography avoids opaque label patches over the soft illustration."""
     def __init__(self,parent,platform,colors,font,**kwargs):
         self.platform,self.colors,self.face=platform,colors,font
+        self._paint_key=None
         self._ready=False
         super().__init__(parent,fg_color=colors["bg_root"],corner_radius=0,**kwargs)
         self._ready=True
@@ -63,16 +81,21 @@ class HeroHeader(ctk.CTkFrame):
         s=self._get_widget_scaling()
         w,h=max(1,round(self._current_width*s)),max(1,round(self._current_height*s))
         dark=self._get_appearance_mode()=="dark"
+        key=(w,h,s,dark,self.platform,self.face,tuple(self.colors.items()))
+        canvas=self._canvas
+        if key==self._paint_key:
+            canvas.tag_raise("hero")
+            return
+        if min(w,h)<=1:return
         background=wash(w,h,dark).convert("RGBA")
         # The art stays right-aligned and behind the header's noninteractive text.
-        art=_hero_asset(self.platform)
         aw,ah=round(332*s),round(221*s)
-        art=art.resize((aw,ah),Image.Resampling.LANCZOS)
+        art=_scaled_hero(self.platform,aw,ah)
         background.alpha_composite(art,(w-round(410*s),round(-8*s)))
-        self._photo=ImageTk.PhotoImage(background,master=self)
-        canvas=self._canvas
+        photo=ImageTk.PhotoImage(background,master=self)
         canvas.delete("hero")
-        canvas.create_image(0,0,image=self._photo,anchor="nw",tags="hero")
+        canvas.create_image(0,0,image=photo,anchor="nw",tags="hero")
+        self._photo=photo
         def text(x,y,value,size,color,bold=False,font=None):
             return canvas.create_text(x*s,y*s,text=value,anchor="nw",fill=color,
                 font=(font or self.face,-round(size*s),"bold" if bold else "normal"),tags="hero")
@@ -88,6 +111,7 @@ class HeroHeader(ctk.CTkFrame):
              "#EE81B5" if not dark else "#F0A7CB",font="Segoe Print")
         text(w/s-103,56,"Collect\n  Inspire\n    Anywhere" if ig else "Watch\n  Download\n    Keep Forever",14,
              "#EF89BD" if not dark else "#EAA8C9",font="Segoe Print")
+        self._paint_key=key
 
 
 class DashedFrame(ctk.CTkFrame):

@@ -27,7 +27,8 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from logging.handlers import RotatingFileHandler
 from version import __version__
-from windows_integration import apply_window_icons, apply_titlebar_theme, set_app_user_model_id
+from windows_integration import apply_window_icons, apply_titlebar_theme, set_app_user_model_id, refresh_restored_window
+from windows_rendering import install_restore_buffer
 from harmony_theme import COLOR_SCHEMES, select_font
 
 # ---------- 打包路径兼容 ----------
@@ -1325,6 +1326,11 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         self._build_ui()
         self._render_history()
+        self._restore_was_unmapped=False
+        self._restore_refresh_pending=None
+        self._restore_buffer=install_restore_buffer(self)
+        self.bind("<Unmap>",self._on_window_unmapped,add="+")
+        self.bind("<Map>",self._on_window_mapped,add="+")
         # 缺少 cookies.json 时自动弹出引导
         cookies_path = os.path.join(BASE_DIR, "cookies.json")
         if not os.path.exists(cookies_path):
@@ -1367,6 +1373,36 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self._apply_colors()
         self._build_sidebar()
         self._build_main()
+
+    def _on_window_unmapped(self,event):
+        if event.widget is self:
+            self._restore_was_unmapped=True
+
+    def _on_window_mapped(self,event):
+        if event.widget is not self or not self._restore_was_unmapped:return
+        self._restore_was_unmapped=False
+        if self._restore_refresh_pending is None:
+            self._restore_refresh_pending=self.after_idle(self._refresh_restored_window)
+
+    def _refresh_restored_window(self):
+        self._restore_refresh_pending=None
+        if self.winfo_exists() and self.state() not in ("iconic","withdrawn"):
+            if self._restore_buffer is not None:
+                self._restore_buffer.finish_restore()
+            else:
+                refresh_restored_window(self)
+
+    def iconify(self):
+        buffer=getattr(self,"_restore_buffer",None)
+        if buffer is not None:
+            buffer.capture()
+        return super().iconify()
+
+    def destroy(self):
+        buffer=getattr(self,"_restore_buffer",None)
+        if buffer is not None:
+            buffer.close()
+        return super().destroy()
 
     # ========== YouTube 功能 ==========
 
@@ -1453,49 +1489,24 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             (self.yt_status_label if self.active_platform == "YouTube" else self.status_label).configure(text="目录不存在，请先选择有效目录")
 
     def _toggle_theme(self):
-        """切换深色/亮色模式，带淡入淡出过渡动画"""
+        """切换外观；保持窗口不透明，避免 Windows 分层窗口恢复时闪黑。"""
         if self.running or self.yt_running or getattr(self, "yt_parsing", False):
             (self.yt_status_label if self.active_platform == "YouTube" else self.status_label).configure(text="任务进行中，请完成后切换外观")
             return
-        def _do_switch():
-            current = ctk.get_appearance_mode()
-            if current == "Light":
-                ctk.set_appearance_mode("Dark")
-            else:
-                ctk.set_appearance_mode("Light")
-            self._apply_colors()
-            self._dismiss_history_popup()
-            self.sidebar.destroy()
-            self.main_container.destroy()
-            self._build_sidebar()
-            self._build_main()
-            self._render_history()
-            if self.image_data:
-                self._render_thumbnails(is_relayout=True)
-                self.download_btn.configure(state="normal" if self.selected_indices else "disabled")
-            _fade_in(1)
-
-        def _fade_out(step=1):
-            alpha = max(0.0, 1.0 - step * 0.1)
-            try:
-                self.attributes("-alpha", alpha)
-            except Exception:
-                pass
-            if alpha > 0.0:
-                self.after(20, _fade_out, step + 1)
-            else:
-                _do_switch()
-
-        def _fade_in(step=1):
-            alpha = min(1.0, step * 0.1)
-            try:
-                self.attributes("-alpha", alpha)
-            except Exception:
-                pass
-            if alpha < 1.0:
-                self.after(20, _fade_in, step + 1)
-
-        _fade_out()
+        self._dismiss_history_popup()
+        # Remove old controls first so CTk doesn't repaint an entire outgoing
+        # page before we create the replacement with the new palette.
+        self.sidebar.destroy()
+        self.main_container.destroy()
+        current = ctk.get_appearance_mode()
+        ctk.set_appearance_mode("Dark" if current=="Light" else "Light")
+        self._apply_colors()
+        self._build_sidebar()
+        self._build_main()
+        self._render_history()
+        if self.image_data:
+            self._render_thumbnails(is_relayout=True)
+            self.download_btn.configure(state="normal" if self.selected_indices else "disabled")
 
     def browse_dir(self):
         dir_selected = ctk.filedialog.askdirectory()

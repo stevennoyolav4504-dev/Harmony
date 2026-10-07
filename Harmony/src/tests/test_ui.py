@@ -176,6 +176,126 @@ class UIRegression(unittest.TestCase):
                     self.assertLessEqual(entry.winfo_rootx()+entry.winfo_width(),a.winfo_rootx()+a.winfo_width())
         a.geometry('1280x940');a._switch_platform('Instagram');a.update()
 
+    @unittest.skipUnless(sys.platform=='win32','Windows minimize/restore')
+    def test_restore_preserves_widgets_inputs_and_cached_surfaces(self):
+        a=self.app
+        from harmony_surfaces import HeroHeader
+        a.geometry('1200x740');a.update()
+        a.url_var.set('https://www.instagram.com/p/restore/')
+        a.yt_url_var.set('https://www.youtube.com/watch?v=restore')
+        controls=(a.url_entry,a.yt_url_entry,a.fetch_btn,a.download_btn)
+        for platform in ('Instagram','YouTube'):
+            a._switch_platform(platform);a.update()
+            page=a.pages[platform]
+            page._parent_canvas.yview_moveto(.15);a.update()
+            before_scroll=page._parent_canvas.yview()
+            header=next(x for x in page.winfo_children() if isinstance(x,HeroHeader))
+            photos=(header._photo,page._wash._photo,a.fetch_btn._gradient_photo)
+            with patch.object(a,'_build_ui') as rebuild,patch.object(a,'_build_main') as build_main,patch.object(a,'_build_sidebar') as build_sidebar:
+                for _ in range(3):
+                    a.iconify();a.update()
+                    self.assertEqual(a.state(),'iconic')
+                    a.deiconify();a.update()
+                    self.assertEqual(a.state(),'normal')
+                rebuild.assert_not_called();build_main.assert_not_called();build_sidebar.assert_not_called()
+            self.assertEqual(controls,(a.url_entry,a.yt_url_entry,a.fetch_btn,a.download_btn))
+            self.assertEqual(photos,(header._photo,page._wash._photo,a.fetch_btn._gradient_photo))
+            self.assertEqual(before_scroll,page._parent_canvas.yview())
+        self.assertEqual(a.url_var.get(),'https://www.instagram.com/p/restore/')
+        self.assertEqual(a.yt_url_var.get(),'https://www.youtube.com/watch?v=restore')
+        a._switch_platform('Instagram');a.pages['Instagram']._parent_canvas.yview_moveto(0)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows transparency mode')
+    def test_theme_switch_does_not_leave_a_layered_window(self):
+        import ctypes
+        from ctypes import wintypes
+        a=self.app
+        getter=ctypes.windll.user32.GetWindowLongW
+        getter.argtypes=[wintypes.HWND,ctypes.c_int];getter.restype=wintypes.LONG
+        parent=ctypes.windll.user32.GetParent
+        parent.argtypes=[wintypes.HWND];parent.restype=wintypes.HWND
+        mode=main.ctk.get_appearance_mode()
+        a.yt_running=False;a.running=False;a.yt_parsing=False
+        a.url_var.set('https://www.instagram.com/p/theme/')
+        for _ in range(2):
+            a._toggle_theme();a.update()
+            self.assertFalse(getter(parent(a.winfo_id()),-20)&0x80000)
+            self.assertEqual(a.url_var.get(),'https://www.instagram.com/p/theme/')
+        self.assertEqual(main.ctk.get_appearance_mode(),mode)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows retained client surfaces')
+    def test_first_mapped_frame_matches_complete_ui(self):
+        from test_windows_rendering import assert_first_mapped_frame
+        assert_first_mapped_frame(self,self.app)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows retained client surfaces')
+    def test_native_minimize_retains_and_releases_complete_frame(self):
+        import ctypes
+        from ctypes import wintypes
+        from windows_integration import _window_handle
+        a=self.app;a.update()
+        buffer=a._restore_buffer
+        self.assertIsNotNone(buffer)
+        u=ctypes.windll.user32
+        u.PostMessageW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM]
+        previous=buffer.capture_count
+        # Dispatch through Tk's normal native message pump, as system buttons do.
+        u.PostMessageW(_window_handle(a),0x112,0xF020,0);a.update()
+        self.assertEqual(a.state(),'iconic')
+        self.assertEqual(buffer.capture_count,previous+1)
+        self.assertIsNotNone(buffer.bitmap)
+        paints=buffer.paint_count
+        u.PostMessageW(_window_handle(a),0x112,0xF120,0);a.update()
+        self.assertEqual(a.state(),'normal')
+        self.assertGreater(buffer.paint_count,paints)
+        self.assertIsNone(buffer.bitmap)
+        self.assertIsNone(buffer.memory_dc)
+        self.assertFalse(buffer.errors)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows GDI resource lifetime')
+    def test_restore_buffer_does_not_accumulate_native_graphics_resources(self):
+        import ctypes
+        from ctypes import wintypes
+        a=self.app;a.update()
+        buffer=a._restore_buffer
+        kernel=ctypes.windll.kernel32
+        kernel.GetCurrentProcess.restype=wintypes.HANDLE
+        getter=ctypes.windll.user32.GetGuiResources
+        getter.argtypes=[wintypes.HANDLE,wintypes.DWORD];getter.restype=wintypes.DWORD
+        process=kernel.GetCurrentProcess()
+        before=getter(process,0)
+        for _ in range(20):
+            a.iconify();a.update();a.deiconify();a.update()
+            self.assertIsNone(buffer.bitmap)
+            self.assertIsNone(buffer.memory_dc)
+        self.assertLessEqual(getter(process,0),before+2)
+        self.assertFalse(buffer.errors)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows live restored controls')
+    def test_restore_displays_input_and_progress_changes_made_while_minimized(self):
+        from test_windows_rendering import client_image
+        from PIL import ImageChops,ImageStat
+        a=self.app;a._switch_platform('YouTube')
+        previous_url=a.yt_url_var.get()
+        try:
+            a.yt_url_var.set('https://www.youtube.com/watch?v=before')
+            a._set_yt_status('正在下载…');a._set_yt_progress(.42);a.update()
+            before=client_image(a)
+            a.iconify();a.update()
+            a.yt_url_var.set('https://www.youtube.com/watch?v=after')
+            a._set_yt_progress(.64)
+            a.deiconify();a.update()
+            self.assertIsNone(a._restore_buffer.bitmap)
+            self.assertEqual(a.yt_url_entry.get(),'https://www.youtube.com/watch?v=after')
+            self.assertEqual(a.yt_percent_label.cget('text'),'64%')
+            # A released backing frame must show the updated pixels, not freeze.
+            difference=ImageChops.difference(before,client_image(a))
+            self.assertGreater(sum(ImageStat.Stat(difference).mean),.01)
+        finally:
+            a.yt_url_var.set(previous_url)
+            a._set_yt_status('就绪');a._set_yt_progress(0)
+            a._switch_platform('Instagram');a.update()
+
     def test_theme_rebuild_keeps_inputs_without_stale_callbacks(self):
         a=self.app
         errors=[]
