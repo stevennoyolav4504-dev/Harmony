@@ -97,6 +97,37 @@ class UIRegression(unittest.TestCase):
         self.assertFalse(a.image_data)
         self.assertTrue(a.preview_grid.winfo_children())
 
+    def test_instagram_previews_keep_order_selection_and_download_state(self):
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram')
+        a._fetch_url='https://www.instagram.com/p/preview/'
+        media=[('https://scontent.cdninstagram.com/first.jpg','image',''),('https://scontent.cdninstagram.com/second.jpg','image','')]
+        with patch.object(a,'_add_to_history'),patch.object(main.threading,'Thread'):
+            a._fetch_complete(media,None)
+        self.assertEqual(len(a.card_buttons),2);self.assertFalse(a.running)
+        self.assertEqual(a.download_btn.cget('state'),'normal')
+        a.toggle_card_selection(1);generation=a._thumbnail_generation
+        image=Image.new('RGB',(300,200),'pink')
+        a._apply_instagram_preview(1,(media[1][0],300,200,image,'image'),generation,1,2)
+        self.assertEqual(a.selected_indices,{0});self.assertEqual([row[0] for row in a.image_data],[m[0] for m in media])
+        a.running=True;a.status_label.configure(text='download in progress');a.progress_bar.set(.2)
+        a._apply_instagram_preview(0,(media[0][0],300,200,image,'image'),generation,2,2)
+        a._finish_instagram_previews(generation)
+        self.assertEqual(a.status_label.cget('text'),'download in progress');self.assertAlmostEqual(a.progress_bar.get(),.2)
+        a.running=False;a.clear_all()
+
+    def test_old_instagram_preview_cannot_replace_a_new_post(self):
+        a=self.app;a.running=False;a.clear_all()
+        generation=a._thumbnail_generation
+        a.image_data=[('https://scontent.cdninstagram.com/new.jpg',0,0,None,'image')]
+        a._render_thumbnails(previews_pending=True)
+        a._thumbnail_generation+=1
+        a._apply_instagram_preview(0,('https://scontent.cdninstagram.com/old.jpg',1,1,Image.new('RGB',(1,1)),'image'),generation,1,1)
+        a._finish_instagram_previews(generation)
+        self.assertTrue(a.image_data[0][0].endswith('/new.jpg'))
+        a._thumbnail_loading=True;a._finish_instagram_previews(a._thumbnail_generation)
+        self.assertIn('预览不可用',a.card_buttons[0]['res_str']);self.assertEqual(len(a.image_data),1)
+        a.clear_all()
+
     def test_clip_entries_and_download_dispatch(self):
         a=self.app
         a.yt_clip_enabled.set(True);a._sync_clip()
@@ -105,11 +136,73 @@ class UIRegression(unittest.TestCase):
         self.assertEqual(a.yt_clip_start_entry.cget('state'),'disabled')
         a.yt_url_var.set('https://www.youtube.com/watch?v=example')
         a.yt_fmt_var.set('1080p')
-        with patch.object(main.threading,'Thread') as worker:
+        with patch.object(a.video_queue,'add',return_value=(['test'],0)) as enqueue,patch.object(a.yt_downloader,'_ensure_yt_cookies',return_value=None):
             a._yt_download()
-            self.assertEqual(worker.call_args.kwargs['args'][2],'1080p')
-            worker.return_value.start.assert_called_once()
+            self.assertEqual(enqueue.call_args.args[1].fmt_key,'1080p')
+            self.assertEqual(enqueue.call_args.args[0],['https://www.youtube.com/watch?v=example'])
         a._yt_download_reset()
+
+    def test_batch_input_uses_queue_without_disabling_single_input(self):
+        a=self.app;a._switch_platform('YouTube');a.yt_clip_enabled.set(False)
+        a.yt_batch_entry.delete('1.0','end')
+        a.yt_batch_entry.insert('1.0','https://youtu.be/one\nhttps://www.youtube.com/watch?v=two')
+        with patch.object(a.video_queue,'add',return_value=(['one','two'],0)) as enqueue,patch.object(a.yt_downloader,'_ensure_yt_cookies',return_value=None):
+            a._yt_batch_download()
+            self.assertEqual(len(enqueue.call_args.args[0]),2)
+            self.assertEqual(a.yt_batch_entry.get('1.0','end').strip(),'')
+            self.assertEqual(a.yt_download_btn.cget('state'),'normal')
+        a._switch_platform('Instagram')
+
+    def test_x_extraction_routes_to_x_and_history_cache_uses_x_key(self):
+        a=self.app;a.running=False;a.url_var.set('https://x.com/example/status/12345')
+        with patch.object(main.threading,'Thread') as worker:
+            a.fetch_images()
+            self.assertEqual(a.current_shortcode,'x_12345')
+            self.assertEqual(worker.call_args.kwargs['args'][0],'https://x.com/example/status/12345')
+        a.running=False
+        with patch.object(a.x_extractor,'extract',return_value=[]) as x,patch.object(a.ig_extractor,'extract') as ig,patch.object(a,'_fetch_complete'),patch.object(a.ig_extractor,'close') as close:
+            a._fetch_worker(a.url_var.get(),None);a.update()
+            x.assert_called_once();ig.assert_not_called();close.assert_not_called()
+        cached=[('https://pbs.twimg.com/media/x.jpg',20,20,Image.new('RGB',(20,20),'pink'),'image')]
+        with patch.object(a,'_load_from_cache',return_value=cached) as load:
+            a._on_history_click(a.url_var.get())
+            load.assert_called_once_with('x_12345')
+        a.clear_all();a.running=False
+
+    def test_tiktok_uses_media_page_and_refreshes_history_links(self):
+        from media_sources import parse_post_link
+        a=self.app;a.running=False;a._switch_platform('Instagram')
+        a.url_var.set('https://vt.tiktok.com/ZABC123/')
+        with patch.object(main.threading,'Thread'):
+            a.fetch_images()
+            self.assertEqual(a.current_shortcode,'tiktok_short_ZABC123')
+        a.running=False
+        resolved=parse_post_link('https://www.tiktok.com/@creator/video/12345')
+        a.tiktok_extractor.resolved_link=resolved
+        with patch.object(a.tiktok_extractor,'extract',return_value=[]) as tiktok, \
+             patch.object(a.x_extractor,'extract') as x,patch.object(a.ig_extractor,'extract') as ig, \
+             patch.object(a,'_fetch_complete') as done,patch.object(a.ig_extractor,'close') as close:
+            a._fetch_worker(a.url_var.get(),None);a.update()
+            tiktok.assert_called_once();x.assert_not_called();ig.assert_not_called();close.assert_not_called()
+            done.assert_called_once_with([],None,resolved)
+        with patch.object(a,'fetch_images') as fetch,patch.object(a,'_load_from_cache') as cache:
+            a._on_history_click(resolved.url)
+            fetch.assert_called_once();cache.assert_not_called()
+            self.assertEqual(a.url_var.get(),resolved.url)
+        self.assertIn('TikTok',a.platform_buttons['Instagram'].cget('text'))
+        a.clear_all();a.running=False
+
+    def test_tiktok_resolved_id_replaces_shortlink_before_history_and_download(self):
+        from media_sources import parse_post_link
+        a=self.app;a.running=True
+        resolved=parse_post_link('https://www.tiktok.com/@creator/photo/12345')
+        media=[('https://cdn.example/photo.jpg','image','')]
+        with patch.object(a,'_add_to_history') as history,patch.object(main.threading,'Thread'):
+            a._fetch_complete(media,None,resolved)
+            self.assertEqual(a.current_shortcode,'tiktok_12345')
+            self.assertEqual(a.url_var.get(),resolved.url)
+            history.assert_called_once_with(resolved.url,1)
+        a.running=False;a.clear_all()
 
     def test_action_buttons_restore_brand_colors_after_disabled_state(self):
         a=self.app
@@ -227,6 +320,16 @@ class UIRegression(unittest.TestCase):
     def test_first_mapped_frame_matches_complete_ui(self):
         from test_windows_rendering import assert_first_mapped_frame
         assert_first_mapped_frame(self,self.app)
+
+    @unittest.skipUnless(sys.platform=='win32','Windows hidden-start frame lifetime')
+    def test_first_map_releases_frame_retained_during_hidden_start(self):
+        from types import SimpleNamespace
+        a=self.app;a.update()
+        a._restore_buffer.capture()
+        self.assertIsNotNone(a._restore_buffer.bitmap)
+        a._restore_was_unmapped=False
+        a._on_window_mapped(SimpleNamespace(widget=a));a.update()
+        self.assertIsNone(a._restore_buffer.bitmap)
 
     @unittest.skipUnless(sys.platform=='win32','Windows retained client surfaces')
     def test_native_minimize_retains_and_releases_complete_frame(self):

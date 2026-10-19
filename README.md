@@ -1,6 +1,6 @@
 # Harmony 2.0 — Instagram & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.0.7-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.2.2-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](Harmony/LICENSE)
 
@@ -14,6 +14,12 @@
 新版采用浅紫色卡片布局、文字侧边栏与顶部平台切换，并换用三色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
 
+2.2.2 将 IG 提取改为后台静默运行，正常提取不再弹出浏览器窗口。底层继续使用内置 Chromium 和原有登录信息；登录失效或需要验证时在 Harmony 内提示，只有主动前往设置点击一键登录才打开登录窗口。
+
+2.2.1 优化 IG 提取：只有确认属于当前帖子的完整媒体数据时才直接返回，其他情况保留原轮播流程。固定等待改为内容就绪等待；先显示媒体卡片，预览随后逐张补齐，可立即选择、复制或下载，保持原图与全尺寸预览。
+
+2.2.0 在原有 IG 模块加入 TikTok，支持公开视频、图片帖与 vm、vt、`/t/` 分享短链接。图片按原顺序显示，沿用多选、右键预览、下载和历史记录；打开 TikTok 历史时重新提取，刷新有时效的下载地址。
+
 2.0.7 在最小化前保留完整窗口画面，恢复最初几帧复用它，待控件完成绘制后释放；输入、点击和任务进度继续使用原有控件。
 
 2.0.6 减少窗口恢复时的绘制延迟：缓存装饰表面、取消整窗透明动画，恢复时保留现有控件、输入和滚动位置。
@@ -26,7 +32,7 @@
 
 2.0.2 修复任务栏与标题栏图标模糊的问题：按当前 DPI 分别加载大小图标，并设置独立的 Windows 应用 ID；2.0.1 修复链接输入框占位提示遮挡编辑区的问题。
 
-- [2.0.7 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.0.7)
+- [2.2.2 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.2.2)
 - [完整更新日志](Harmony/CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
@@ -81,7 +87,7 @@
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.0.7-Windows-x64.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.2.2-Windows-x64.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 

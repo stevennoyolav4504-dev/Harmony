@@ -1,4 +1,5 @@
-﻿yt-dlp==2026.8.19
+yt-dlp[default]==2026.10.10.233141.dev0
+yt-dlp-ejs==0.8.0
 playwright==1.57.0
 playwright-stealth==2.0.3
 customtkinter==6.0.0

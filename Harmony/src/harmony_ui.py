@@ -1,6 +1,8 @@
 """Harmony's REV.06 desktop presentation layer."""
 import os
 import threading
+import tempfile
+from pathlib import Path
 import tkinter.font as tkfont
 import customtkinter as ctk
 from PIL import ImageTk
@@ -160,7 +162,7 @@ class HarmonyUI:
         switch.pack(side="right")
         self.platform_buttons={}
         for platform in ("Instagram","YouTube"):
-            b=ctk.CTkButton(switch,text=platform,image=self._img(platform.lower(),size=22),width=148,height=40,
+            b=ctk.CTkButton(switch,text='Instagram / X / TikTok' if platform=='Instagram' else platform,image=self._img(platform.lower(),size=22),width=206 if platform=='Instagram' else 148,height=40,
                 corner_radius=10,font=(self.ui_font,13),command=lambda p=platform:self._switch_platform(p))
             b.pack(side="left",padx=3,pady=3)
             self.platform_buttons[platform]=b
@@ -188,7 +190,7 @@ class HarmonyUI:
         row.pack(fill="x",padx=24,pady=(3,20 if yt else 26))
         self._label(row,"",image=self._img("link",c["text_muted"])).pack(side="left",padx=(18,8))
         var=self.yt_url_var if yt else self.url_var
-        entry=ctk.CTkEntry(row,textvariable=var,placeholder_text="https://www.youtube.com/watch?v=..." if yt else "https://www.instagram.com/p/...",
+        entry=ctk.CTkEntry(row,textvariable=var,placeholder_text="https://www.youtube.com/watch?v=..." if yt else "Instagram / X / TikTok 帖子链接",
             height=54,border_width=0,fg_color=c["bg_card"],font=(self.ui_font,16),text_color=c["text_primary"],placeholder_text_color=c["placeholder"])
         btn=self._button(row,"解析视频" if yt else "提取",self._yt_parse if yt else self.fetch_images,True,"arrow",158,56)
         btn.pack(side="right",padx=4,pady=4)
@@ -196,7 +198,7 @@ class HarmonyUI:
         clear.pack(side="right",padx=12)
         entry.pack(side="left",fill="x",expand=True,pady=4)
         # CTkEntry doesn't display its own placeholder with a StringVar attached.
-        hint=self._label(entry,"https://www.youtube.com/watch?v=..." if yt else "https://www.instagram.com/p/...",
+        hint=self._label(entry,"https://www.youtube.com/watch?v=..." if yt else "Instagram / X / TikTok 帖子链接",
                          16,color=c["placeholder"],fg_color=c["bg_card"],anchor="w",cursor="xterm")
         def focus_entry_from_hint(_event=None):
             # The placeholder is a label placed over the native entry. Hide it
@@ -236,7 +238,7 @@ class HarmonyUI:
     def _build_instagram(self,page):
         c=self.c
         card=self._card(page); card.pack(fill="x",pady=(0,16))
-        self._step(card,1,"粘贴 Instagram 帖子链接","支持帖子、Reels、图集等多种内容类型",
+        self._step(card,1,"粘贴 Instagram / X / TikTok 链接","支持图片与视频，以及 TikTok 图片帖、分享短链接",
             lambda row:self._button(row,"?",self._show_cookie_guide,width=32,height=32).pack(side="right"))
         self._link_row(card)
         pair=ctk.CTkFrame(page,fg_color="transparent"); pair.pack(fill="x",pady=(0,16))
@@ -299,6 +301,20 @@ class HarmonyUI:
         card=self._card(page);card.pack(fill="x",pady=(0,14))
         self._step(card,1,"粘贴链接","粘贴 YouTube / B站 等视频链接，开始解析")
         self._link_row(card,True)
+        bulk=ctk.CTkFrame(card,fg_color='transparent');bulk.pack(fill='x',padx=24,pady=(0,16))
+        controls=ctk.CTkFrame(bulk,fg_color='transparent');controls.pack(side='right',padx=(14,0))
+        self._label(controls,'同时下载',12,color=c['text_secondary']).pack(anchor='w')
+        self.yt_concurrency_menu=ctk.CTkOptionMenu(controls,variable=self.yt_concurrency_var,
+            values=['1','2','3','4','5'],command=self._yt_set_concurrency,width=142,height=32,
+            fg_color=c['bg_input'],button_color=c['accent_bg'],text_color=c['text_primary'],
+            dropdown_fg_color=c['bg_card'],dropdown_text_color=c['text_primary'])
+        self.yt_concurrency_menu.pack(pady=(3,7))
+        self._button(controls,'批量下载',self._yt_batch_download,True,'download',142,40).pack()
+        self.yt_batch_entry=ctk.CTkTextbox(bulk,height=92,border_width=1,border_color=c['border'],
+            fg_color=c['bg_input'],text_color=c['text_primary'],font=(self.ui_font,13),corner_radius=10)
+        self.yt_batch_entry.pack(side='left',fill='x',expand=True)
+        self.yt_batch_hint=self._label(card,'批量链接：每行一条；新任务使用下方的保存目录和格式设置',12,color=c['text_secondary'])
+        self.yt_batch_hint.pack(anchor='w',padx=24,pady=(0,14))
         card=self._card(page);card.pack(fill="x",pady=(0,14))
         self._step(card,2,"保存目录","选择下载文件的保存位置")
         self._directory_row(card,True)
@@ -346,8 +362,61 @@ class HarmonyUI:
         info.pack(fill="x",padx=22,pady=(0,14))
         art=empty_art(True,dark=ctk.get_appearance_mode()=="Dark")
         self._label(info,"",image=ctk.CTkImage(light_image=art,dark_image=art,size=(80,50))).pack(side="left",padx=(20,15),pady=10)
-        self.yt_info_label=self._label(info,"暂无下载任务\n粘贴链接并点击「解析视频」开始下载",12,color=c["text_secondary"],justify="left",anchor="w",wraplength=620)
+        self.yt_info_label=self._label(info,"视频信息\n单条链接可先解析标题与画质，批量链接可直接下载",12,color=c["text_secondary"],justify="left",anchor="w",wraplength=620)
         self.yt_info_label.pack(side="left",fill="x",expand=True,padx=(0,15))
+        queue_card=self._card(page);queue_card.pack(fill='x',pady=(5,12))
+        head=ctk.CTkFrame(queue_card,fg_color='transparent');head.pack(fill='x',padx=22,pady=(15,8))
+        self._button(head,'清除已结束',self._yt_clear_finished,width=104,height=32).pack(side='right')
+        self.yt_queue_summary=self._label(head,'下载队列',17,True,anchor='w');self.yt_queue_summary.pack(side='left')
+        self.yt_queue_rows_host=ctk.CTkScrollableFrame(queue_card,height=88,fg_color='transparent',
+            scrollbar_button_color=c['border'],scrollbar_button_hover_color=c['text_muted'])
+        self.yt_queue_rows_host.pack(fill='x',padx=16,pady=(0,12))
+        self.yt_task_rows={}
+        self._render_video_queue(self.video_queue.snapshots())
+
+    def _render_video_queue(self,tasks):
+        c=self.c
+        ids={task.id for task in tasks}
+        for task_id in list(self.yt_task_rows):
+            if task_id not in ids:self.yt_task_rows.pop(task_id)['frame'].destroy()
+        counts={state:sum(t.state==state for t in tasks) for state in ('waiting','running','done','failed','cancelled')}
+        self.yt_running=bool(counts['waiting']+counts['running'])
+        self.yt_queue_summary.configure(text=f"下载队列 · 下载中 {counts['running']} · 等待 {counts['waiting']} · 完成 {counts['done']} · 失败 {counts['failed']}")
+        self.yt_queue_rows_host.configure(height=min(260,max(64,len(tasks)*92)))
+        for task in tasks:
+            if task.id not in self.yt_task_rows:
+                frame=ctk.CTkFrame(self.yt_queue_rows_host,fg_color=c['bg_input'],corner_radius=10)
+                frame.pack(fill='x',pady=(0,8))
+                button=self._button(frame,'取消',lambda task_id=task.id:self._yt_cancel_task(task_id),width=68,height=32)
+                button.pack(side='right',padx=12)
+                body=ctk.CTkFrame(frame,fg_color='transparent');body.pack(side='left',fill='x',expand=True,padx=12,pady=9)
+                title=self._label(body,'',13,True,anchor='w',wraplength=580);title.pack(fill='x')
+                meta=self._label(body,'',11,color=c['text_muted'],anchor='w',wraplength=550);meta.pack(fill='x')
+                status=self._label(body,'',11,color=c['text_secondary'],anchor='w',wraplength=550);status.pack(fill='x')
+                bar=ctk.CTkProgressBar(body,height=4,fg_color=c['progress_track'],progress_color=c['accent']);bar.pack(fill='x',pady=(5,0))
+                self.yt_task_rows[task.id]={'frame':frame,'title':title,'meta':meta,'status':status,'bar':bar,'button':button}
+            row=self.yt_task_rows[task.id]
+            row['title'].configure(text=(task.title or task.url)[:110])
+            quality={'best':'自动画质','audio':'仅音频'}.get(task.options.fmt_key,task.options.fmt_key)
+            row['meta'].configure(text=f'{quality} · {task.options.container} · {task.options.save_dir}')
+            tone='error' if task.state=='failed' else 'success_text' if task.state=='done' else 'text_secondary'
+            row['status'].configure(text=f'{task.progress:.0%} · {task.message.replace(chr(10), " ")[:115]}',text_color=c[tone])
+            row['bar'].set(task.progress)
+            row['bar'].configure(progress_color=c['success'] if task.state=='done' else c['accent'])
+            if task.state in ('failed','cancelled'):
+                row['button'].configure(text='重试',state='normal',command=lambda task_id=task.id:self._yt_retry_task(task_id))
+            elif task.state=='done':row['button'].configure(text='打开',state='normal',command=lambda task_id=task.id:self._yt_open_task_dir(task_id))
+            else:row['button'].configure(text='取消',state='normal',command=lambda task_id=task.id:self._yt_cancel_task(task_id))
+        if tasks:
+            processed=sum(1 if t.state in self.video_queue.FINISHED else t.progress for t in tasks)
+            self._set_yt_progress(processed/len(tasks))
+            if not getattr(self,'yt_parsing',False):
+                message=f"同时下载 {counts['running']} 个，等待 {counts['waiting']} 个" if self.yt_running else f"队列结束：完成 {counts['done']}，失败 {counts['failed']}，取消 {counts['cancelled']}"
+                self.yt_status_label.configure(text=message,text_color=c['error' if counts['failed'] and not self.yt_running else 'success_text' if not self.yt_running else 'accent_text'])
+        elif not getattr(self,'yt_parsing',False):
+            self.yt_status_label.configure(text='就绪',text_color=c['text_secondary'])
+            self._set_yt_progress(0)
+        self.yt_download_btn.configure(state='disabled' if getattr(self,'yt_parsing',False) else 'normal',text='继续添加' if self.yt_running else '下载')
 
     def _switch_platform(self,platform):
         self.active_platform=platform
@@ -379,18 +448,18 @@ class HarmonyUI:
         self._button(popup,"Instagram 登录与 Cookie",lambda:(popup.destroy(),self._show_cookie_guide()),width=340).pack(pady=6)
 
     def _show_help(self):
-        popup=ctk.CTkToplevel(self);popup.title("Harmony · 帮助");popup.geometry("490x520")
+        popup=ctk.CTkToplevel(self);popup.title("Harmony · 帮助");popup.geometry("520x560")
         self._set_window_icon(popup)
         popup.configure(fg_color=self.c["bg_root"]);popup.transient(self);popup.grab_set()
         brand=ctk.CTkFrame(popup,fg_color=PRIMARY_BACKGROUND,corner_radius=16)
         brand.pack(fill="x",padx=25,pady=(20,0))
         self._label(brand,"",image=self._brand_image("logo",200)).pack(padx=30,pady=22)
         self._label(popup,"让喜欢的内容，留在身边。",22,True).pack(anchor="w",padx=25,pady=(18,16))
-        self._label(popup,"Instagram\n粘贴帖子链接 → 提取 → 选择媒体 → 下载\n左键选择媒体，右键查看预览。\n\nYouTube / B站\n粘贴链接 → 解析视频 → 选择格式 → 下载\n可按需下载片段或 SRT 字幕。",14,justify="left").pack(anchor="w",padx=25)
+        self._label(popup,"Instagram / X / TikTok\n粘贴帖子链接 → 提取 → 选择媒体 → 下载\nTikTok 支持视频、图片帖和分享短链接。\n右键查看预览。\n\nYouTube / B站\n单条链接或批量粘贴 → 选择格式 → 加入队列\n支持 1–5 个同时下载、片段及 SRT 字幕。",14,justify="left").pack(anchor="w",padx=25)
         self._button(popup,"Instagram 登录帮助",lambda:(popup.destroy(),self._show_cookie_guide()),width=200).pack(anchor="w",padx=25,pady=20)
 
     def _yt_parse(self):
-        if self.yt_running or getattr(self,"yt_parsing",False):return
+        if getattr(self,"yt_parsing",False):return
         url=self.yt_url_var.get().strip()
         if not url:
             self.yt_status_label.configure(text="请先粘贴视频链接",text_color=self.c["warning"]);return
@@ -402,7 +471,7 @@ class HarmonyUI:
         self.yt_parse_btn.configure(state="disabled",text="解析中…")
         self.yt_download_btn.configure(state="disabled")
         self.yt_status_label.configure(text="正在解析视频信息…",text_color=self.c["accent_text"])
-        self._set_yt_progress(0)
+        if not self.yt_running:self._set_yt_progress(0)
         threading.Thread(target=self._yt_parse_worker,args=(url,),daemon=True).start()
 
     def _yt_parse_worker(self,url):
@@ -413,11 +482,14 @@ class HarmonyUI:
             # 源码布局为 <项目根>/src/harmony_ui.py，上移一级以定位 youtube_cookies.txt / runtime
             BASE_DIR=os.path.dirname(sys.executable) if getattr(sys,"frozen",False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             opts={"quiet":True,"no_warnings":True,"noplaylist":True,"skip_download":True,"socket_timeout":30}
-            cookie_path=os.path.join(BASE_DIR,"youtube_cookies.txt")
-            if os.path.isfile(cookie_path):opts["cookiefile"]=cookie_path
             nodes=glob.glob(os.path.join(BASE_DIR,"runtime","node","*","node.exe"))
             if nodes:opts["js_runtimes"]={"node":{"path":nodes[0]}}
-            with yt_dlp.YoutubeDL(opts) as ydl:info=ydl.extract_info(url,download=False)
+            with tempfile.TemporaryDirectory(prefix='harmony-parse-') as folder:
+                source=self.yt_downloader._ensure_yt_cookies()
+                if source:
+                    cookie=Path(folder)/'cookies.txt';cookie.write_bytes(Path(source).read_bytes())
+                    opts['cookiefile']=str(cookie)
+                with yt_dlp.YoutubeDL(opts) as ydl:info=ydl.extract_info(url,download=False)
             if not info:raise ValueError("未能获取视频信息")
             duration=int(info.get("duration") or 0)
             heights=sorted({f.get("height") for f in info.get("formats",[]) if f.get("height")},reverse=True)
@@ -430,7 +502,7 @@ class HarmonyUI:
     def _yt_parse_done(self,url,summary,error):
         self.yt_parsing=False
         self.yt_parse_btn.configure(state="normal",text="解析视频")
-        self.yt_download_btn.configure(state="normal")
+        self.yt_download_btn.configure(state="normal",text='继续添加' if self.yt_running else '下载')
         if url!=self.yt_url_var.get().strip():
             self.yt_status_label.configure(text="链接已更改，请重新解析",text_color=self.c["warning"]);return
         self.yt_status_label.configure(text="解析失败，请检查链接或网络" if error else "解析完成，请选择格式后下载",

@@ -100,13 +100,13 @@ class HeroHeader(ctk.CTkFrame):
             return canvas.create_text(x*s,y*s,text=value,anchor="nw",fill=color,
                 font=(font or self.face,-round(size*s),"bold" if bold else "normal"),tags="hero")
         ig=self.platform=="Instagram"
-        title=text(10,21,"Instagram 媒体提取器" if ig else "YouTube 下载器",32,self.colors["text_heading"],True)
+        title=text(10,21,"社交媒体提取器" if ig else "YouTube 下载器",32,self.colors["text_heading"],True)
         end=canvas.bbox(title)[2]/s+14
         # Capsule uses a single rounded stroke, so its corners stay smooth at any DPI.
         canvas.create_line((end+13)*s,44*s,(end+89)*s,44*s,width=29*s,
             capstyle="round",fill=self.colors["pink_bg"],tags="hero")
         text(end+13,33,"图片 · 视频" if ig else "视频 · 音频",13,self.colors["pink_text"],True)
-        text(11,72,"粘贴 Instagram 帖子链接，提取图片与视频" if ig else "粘贴 YouTube / B站 等链接，下载视频或音频",17,self.colors["text_secondary"])
+        text(11,72,"Instagram · X · TikTok，提取喜欢的图片与视频" if ig else "粘贴 YouTube / B站 等链接，支持多个视频同时下载",17,self.colors["text_secondary"])
         text(11,112,"Save what inspires you  ✦" if ig else "Videos for a brighter tomorrow  ✦",18,
              "#EE81B5" if not dark else "#F0A7CB",font="Segoe Print")
         text(w/s-103,56,"Collect\n  Inspire\n    Anywhere" if ig else "Watch\n  Download\n    Keep Forever",14,
