@@ -34,7 +34,7 @@ from windows_integration import apply_window_icons, apply_titlebar_theme, set_ap
 from windows_rendering import install_restore_buffer
 from harmony_theme import COLOR_SCHEMES, select_font
 from media_sources import XMediaExtractor, TikTokMediaExtractor, parse_post_link
-from instagram_media import read_complete_instagram_post
+from instagram_media import read_complete_instagram_post, instagram_media_identity, map_instagram_recovery
 from video_tasks import VideoTaskQueue, VideoOptions, TaskCancelled, parse_video_links, run_media_process, validate_clip
 
 # ---------- 打包路径兼容 ----------
@@ -132,7 +132,7 @@ LOG_FILE = os.path.join(LOG_DIR, "harmony.log")
 logger = logging.getLogger("InstaDownloader")
 logger.setLevel(logging.DEBUG)
 
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=3)
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
 file_handler.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(threadName)s - %(message)s')
 file_handler.setFormatter(file_formatter)
@@ -164,13 +164,13 @@ class InstagramExtractor:
         self._context = None
         self._playwright = None
 
-    def _init_browser(self):
-        """后台运行提取内核，不创建可见的浏览器窗口。"""
+    def _init_browser(self, headless=True):
+        """Normally silent; the legacy recovery explicitly opens a window."""
         if not _browsers_ready:
             raise RuntimeError("Chromium 浏览器未就绪，请确认 _internal\\browsers 目录存在且包含 chromium-*")
         self._playwright = sync_playwright().start()
         launch_options = {
-            "headless": True,
+            "headless": headless,
             # Use the bundled full Chromium's headless mode. Default headless
             # needs a separate headless-shell download that releases omit.
             "channel": "chromium",
@@ -231,12 +231,12 @@ class InstagramExtractor:
         Stealth().apply_stealth_sync(page)
         return page
 
-    def extract(self, url: str, progress_callback=None) -> list:
+    def extract(self, url: str, progress_callback=None, *, legacy=False, cancelled=None) -> list:
         """提取 Instagram 帖子中的图片与视频，返回 [(url, type, thumb_url), ...]"""
         logger.info(f"开始真人模拟提取，URL: {url}")
         collected_media = []
 
-        page = self._init_browser()
+        page = self._init_browser(headless=False) if legacy else self._init_browser()
         started = time.monotonic()
 
         try:
@@ -245,7 +245,7 @@ class InstagramExtractor:
             _check_instagram_access(page.url)
 
             shortcode = parse_post_link(url).post_id
-            initial, complete = _wait_instagram_ready(page, shortcode)
+            initial, complete = _wait_instagram_ready(page, shortcode, allow_complete=not legacy, cancelled=cancelled)
             if complete:
                 logger.info('IG 完整数据提取: %s 项, %.3f 秒（含导航与页面等待，不含浏览器启动）', len(initial), time.monotonic() - started)
                 if progress_callback: progress_callback(f'已读取完整帖子：{len(initial)} 项')
@@ -263,9 +263,12 @@ class InstagramExtractor:
                 logger.info("检测到轮播图，开始遍历切换...")
                 seen_urls = set()
                 for idx in range(20):
+                    if cancelled and cancelled(): raise RuntimeError('提取已取消')
+                    _check_instagram_access(page.url)
                     current = extract_current_visible_media(page)
-                    new_items = [item for item in current if item[0] not in seen_urls]
-                    seen_urls.update(item[0] for item in current)
+                    key = instagram_media_identity if legacy else lambda item: item[0]
+                    new_items = [item for item in current if key(item) not in seen_urls]
+                    seen_urls.update(key(item) for item in current)
                     collected_media.extend(new_items)
                     if progress_callback:
                         progress_callback(
@@ -278,8 +281,9 @@ class InstagramExtractor:
                         prev_srcs = set(item[0] for item in current)
                         next_btn.click()
                         # 等待新帧图片渲染稳定后再提取，避免懒加载未完成导致漏图
-                        _wait_carousel_ready(page, prev_srcs)
+                        _wait_carousel_ready(page, prev_srcs, cancelled=cancelled)
                     except Exception:
+                        if cancelled and cancelled(): raise
                         break
             else:
                 collected_media.extend(initial or extract_current_visible_media(page))
@@ -303,8 +307,9 @@ class InstagramExtractor:
             seen = set()
             unique = []
             for item in collected_media:
-                if item[0] not in seen:
-                    seen.add(item[0])
+                key = instagram_media_identity(item) if legacy else item[0]
+                if key not in seen:
+                    seen.add(key)
                     unique.append(item)
             logger.info(f"共提取到 {len(unique)} 个媒体")
             logger.info('IG DOM 提取耗时: %.3f 秒（含导航与页面等待，不含浏览器启动）', time.monotonic() - started)
@@ -338,16 +343,17 @@ def _check_instagram_access(url):
         raise RuntimeError('Instagram 需要账号验证，请到「设置 → Instagram 登录与 Cookie」完成验证后重试')
 
 
-def _wait_instagram_ready(page, shortcode, timeout=15):
+def _wait_instagram_ready(page, shortcode, timeout=15, *, allow_complete=True, cancelled=None):
     """Wait for full post data or stable, actually loaded DOM media."""
     deadline = time.monotonic() + timeout
     last, stable_since, scrolled = None, None, False
     next_scan = 0.0
     current = []
     while time.monotonic() < deadline:
+        if cancelled and cancelled(): raise RuntimeError('提取已取消')
         _check_instagram_access(page.url)
         now = time.monotonic()
-        if now >= next_scan:
+        if allow_complete and now >= next_scan:
             try:
                 complete = read_complete_instagram_post(page, shortcode)
                 if complete: return complete, True
@@ -377,7 +383,7 @@ _IG_NEXT_BUTTON = ('button[aria-label="下一步"], button[aria-label="Next"], '
                    'div[role="button"]:has(svg[aria-label="下一页"])')
 
 
-def _wait_carousel_ready(page, prev_srcs, timeout=15):
+def _wait_carousel_ready(page, prev_srcs, timeout=15, *, cancelled=None):
     """等待轮播切换完成且新帧图片渲染稳定，避免懒加载未完成导致漏图。
 
     轮询当前已加载的 CDN 图片和直连视频 URL 集合：
@@ -388,6 +394,7 @@ def _wait_carousel_ready(page, prev_srcs, timeout=15):
     last = set()
     stable = 0
     while time.monotonic() < deadline:
+        if cancelled and cancelled(): raise RuntimeError('提取已取消')
         try:
             srcs = [item[0] for item in extract_current_visible_media(page, ready_only=True)]
         except Exception:
@@ -652,6 +659,44 @@ def extract_post_media_from_json(page):
 
 
 # ---------- 多线程下载 ----------
+def _retry_media_transfer(operation, label):
+    """Retry a whole read on transient transport failures, at most twice."""
+    for attempt in range(3):
+        try:
+            return operation()
+        except requests.RequestException as error:
+            response = error.response
+            status = response.status_code if response is not None else None
+            transient = isinstance(error, (requests.ConnectionError, requests.Timeout,
+                                          requests.exceptions.ChunkedEncodingError)) or status in (408, 500, 502, 503, 504)
+            # A certificate problem must be fixed, never bypassed or retried.
+            certificate_error = isinstance(error, requests.exceptions.SSLError) and any(
+                text in str(error).upper() for text in ('CERTIFICATE_VERIFY_FAILED', 'HOSTNAME MISMATCH'))
+            if attempt == 2 or not transient or certificate_error:
+                raise
+            delay = .5 * 2 ** attempt
+            logger.warning('%s请求失败，%.1f 秒后重试（%d/2，%s）',
+                           label, delay, attempt + 1, type(error).__name__)
+            time.sleep(delay)
+
+
+def _read_instagram_preview(media, proxy, cancelled, label):
+    url, kind, thumb = media
+    resource = thumb if kind == 'video' else url
+    if not resource: raise ValueError('No preview')
+    options = {'headers': {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}, 'timeout': 10}
+    if proxy: options['proxies'] = {'http': proxy, 'https': proxy}
+    def read():
+        if cancelled(): raise RuntimeError('Preview no longer needed')
+        with requests.get(resource, **options) as response:
+            response.raise_for_status()
+            return response.content
+    content = _retry_media_transfer(read, label)
+    with Image.open(BytesIO(content)) as source:
+        image = source.copy()
+    return url, image.width, image.height, image, kind
+
+
 def download_media_parallel(media_list, save_dir, prefix="post", progress_callback=None, request_headers=None, proxy=None):
     """media_list: [(url, type, thumb_url), ...]"""
     if not os.path.exists(save_dir):
@@ -664,7 +709,6 @@ def download_media_parallel(media_list, save_dir, prefix="post", progress_callba
 
     def _download_single(args):
         idx, (url, media_type, _thumb) = args
-        partial_path = None
         try:
             item_headers = dict(headers)
             if (urlsplit(url).hostname or '').endswith('twimg.com'):
@@ -682,32 +726,41 @@ def download_media_parallel(media_list, save_dir, prefix="post", progress_callba
                 ext = '.' + ('jpg' if image_format == 'jpeg' else image_format)
             request_options = {'headers': item_headers, 'timeout': InstagramDownloaderApp.REQUEST_TIMEOUT, 'stream': True}
             if proxy: request_options['proxies'] = {'http': proxy, 'https': proxy}
-            with requests.get(url, **request_options) as resp:
-                resp.raise_for_status()
-                content_type = resp.headers.get('Content-Type', '')
-                if isinstance(content_type, str):
-                    mime = content_type.split(';', 1)[0].lower()
-                    if mime.startswith('text/'): raise ValueError('服务器未返回媒体文件，请重新提取链接')
-                    if media_type != 'video':
-                        ext = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}.get(mime, ext)
-                out_path = os.path.join(save_dir, f"{prefix}_{idx+1}{ext}")
-                partial_path = out_path + '.part'
-                with open(partial_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=256*1024):
-                        if chunk: f.write(chunk)
-                os.replace(partial_path, out_path)
-                if ext == ".webp":
+            def transfer():
+                file_ext = ext
+                with requests.get(url, **request_options) as resp:
+                    resp.raise_for_status()
+                    content_type = resp.headers.get('Content-Type', '')
+                    if isinstance(content_type, str):
+                        mime = content_type.split(';', 1)[0].lower()
+                        if mime.startswith('text/'): raise ValueError('服务器未返回媒体文件，请重新提取链接')
+                        if media_type != 'video':
+                            file_ext = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}.get(mime, file_ext)
+                    out_path = os.path.join(save_dir, f"{prefix}_{idx+1}{file_ext}")
+                    partial_path = out_path + '.part'
                     try:
-                        png_path = out_path.replace(".webp", ".png")
-                        with Image.open(out_path) as img:
-                            img.save(png_path, "PNG")
-                        os.remove(out_path)
-                    except Exception:
-                        pass
-                return True, idx
+                        with open(partial_path, "wb") as f:
+                            for chunk in resp.iter_content(chunk_size=256*1024):
+                                if chunk: f.write(chunk)
+                        os.replace(partial_path, out_path)
+                    finally:
+                        # Each retry starts clean; an incomplete read never
+                        # overwrites an existing complete file.
+                        if os.path.isfile(partial_path): os.remove(partial_path)
+                return out_path, file_ext
+
+            out_path, ext = _retry_media_transfer(transfer, f'下载第 {idx+1} 项')
+            if ext == ".webp":
+                try:
+                    png_path = out_path.replace(".webp", ".png")
+                    with Image.open(out_path) as img:
+                        img.save(png_path, "PNG")
+                    os.remove(out_path)
+                except Exception:
+                    pass
+            return True, idx
         except Exception as e:
-            logger.error(f"下载失败 {url}: {e}")
-            if partial_path and os.path.isfile(partial_path): os.remove(partial_path)
+            logger.error('下载第 %d 项失败（%s，%s）', idx + 1, urlsplit(url).hostname, type(e).__name__)
         return False, idx
 
     completed = 0
@@ -1383,6 +1436,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.running = False
         self._thumbnail_generation = 0
         self._thumbnail_loading = False
+        self._ig_recovery_attempted = False
+        self._ig_recovery_pending = False
+        self._ig_recovery_active = False
         self.history_expanded = False
         self._history_popup = None
         self._on_configure_id = None
@@ -1666,6 +1722,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                 media_list = self.ig_extractor.extract(url, status_callback)
             self.after(0, self._fetch_complete, media_list, None)
         except Exception as e:
+            logger.exception('%s 提取失败', link.platform)
             self.after(0, self._fetch_complete, [], str(e))
         finally:
             if link.platform == 'Instagram': self.ig_extractor.close()
@@ -1718,16 +1775,12 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         def fetch(item):
             index, (url, kind, thumb) = item
             if self._closing or generation != self._thumbnail_generation: return index, None
-            resource = thumb if kind == 'video' else url
             try:
-                if not resource: raise ValueError('No preview')
-                options = {'headers': {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}, 'timeout': 10}
-                if proxy: options['proxies'] = {'http': proxy, 'https': proxy}
-                response = requests.get(resource, **options); response.raise_for_status()
-                with Image.open(BytesIO(response.content)) as source:
-                    image = source.copy()
-                return index, (url, image.width, image.height, image, kind)
-            except Exception:
+                return index, _read_instagram_preview((url, kind, thumb), proxy,
+                    lambda: self._closing or generation != self._thumbnail_generation, f'预览第 {index+1} 项')
+            except Exception as error:
+                if not self._closing and generation == self._thumbnail_generation:
+                    logger.warning('预览第 %d 项不可用（%s）', index + 1, type(error).__name__)
                 return index, (url, 0, 0, None, kind)
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(fetch, item) for item in enumerate(media_list)]
@@ -1751,13 +1804,97 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
     def _finish_instagram_previews(self, generation):
         if self._closing or generation != self._thumbnail_generation: return
+        if self._ig_recovery_active: return
         self._thumbnail_loading = False
         for index, item in enumerate(self.image_data):
             if item[3] is None: self._refresh_media_card(index)
         if not self.running:
             missing = sum(item[3] is None for item in self.image_data)
-            self.status_label.configure(text=f'完成；{missing} 项预览不可用，仍可下载' if missing else '完成',text_color=self.c['text_secondary' if missing else 'success_text'])
+            self.status_label.configure(text=f'已提取 {len(self.image_data)} 项；{missing} 项预览加载失败' if missing else '完成',text_color=self.c['warning' if missing else 'success_text'])
             self.progress_bar.set(1)
+        self._save_cache(getattr(self, 'current_shortcode', 'post'))
+        if any(item[3] is None for item in self.image_data):
+            self._start_instagram_recovery(generation)
+
+    def _start_instagram_recovery(self, generation):
+        if self._closing or generation != self._thumbnail_generation or self._ig_recovery_attempted: return
+        url = getattr(self, '_fetch_url', '')
+        try:
+            if parse_post_link(url).platform != 'Instagram': return
+        except ValueError: return
+        if not any(item[3] is None for item in self.image_data):
+            self._ig_recovery_pending = False
+            return
+        if self.running:
+            self._ig_recovery_pending = True
+            return
+        self._ig_recovery_attempted = True
+        self._ig_recovery_pending = False
+        self._ig_recovery_active = True
+        self.running = True
+        self._thumbnail_loading = True
+        self.download_btn.configure(state='disabled')
+        self.status_label.configure(text='预览加载失败，正在打开浏览器重新轮播提取…', text_color=self.c['accent_text'])
+        self.progress_bar.configure(progress_color=self.c['accent'])
+        self.progress_bar.set(.2)
+        proxy = self.proxy_var.get().strip() or None
+        threading.Thread(target=self._recover_instagram_worker,
+            args=(url, generation, list(self.image_data), proxy), daemon=True).start()
+
+    def _recover_instagram_worker(self, url, generation, original, proxy):
+        cancelled = lambda: self._closing or generation != self._thumbnail_generation
+        if cancelled(): return
+        extractor = InstagramExtractor(self.ig_extractor.cookies_path, proxy)
+        updates, error = {}, None
+        try:
+            def status(message):
+                self._schedule_media_callback(self._instagram_recovery_status, generation, message)
+            media = extractor.extract(url, status, legacy=True, cancelled=cancelled)
+            if cancelled(): return
+            candidates = {index: item for index, item in map_instagram_recovery(original, media).items()
+                          if original[index][3] is None}
+            def load(index, candidate):
+                try:
+                    return index, _read_instagram_preview(candidate, proxy, cancelled, f'兼容预览第 {index+1} 项')
+                except Exception as failure:
+                    logger.warning('兼容预览第 %d 项不可用（%s）', index + 1, type(failure).__name__)
+                    return index, (candidate[0], 0, 0, None, candidate[1])
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(load, index, candidate) for index, candidate in candidates.items()]
+                for future in as_completed(futures):
+                    if cancelled():
+                        for pending in futures: pending.cancel()
+                        return
+                    index, item = future.result()
+                    updates[index] = item
+            if not media: error = '浏览器未提取到媒体，已保留原有结果'
+        except Exception as failure:
+            logger.exception('IG 有头轮播补救失败')
+            error = str(failure)
+        finally:
+            extractor.close()
+        self._schedule_media_callback(self._finish_instagram_recovery, generation, updates, error)
+
+    def _instagram_recovery_status(self, generation, message):
+        if self._closing or generation != self._thumbnail_generation: return
+        self.status_label.configure(text=f'兼容提取：{message}')
+
+    def _finish_instagram_recovery(self, generation, updates, error):
+        if self._closing or generation != self._thumbnail_generation: return
+        self.running = False
+        self._thumbnail_loading = False
+        self._ig_recovery_active = False
+        for index, item in updates.items():
+            if index < len(self.image_data) and self.image_data[index][3] is None:
+                self.image_data[index] = item
+        for index in range(len(self.image_data)): self._refresh_media_card(index)
+        missing = sum(item[3] is None for item in self.image_data)
+        message = f'兼容提取完成；仍有 {missing} 项预览加载失败' if missing else '兼容提取完成，预览已全部恢复'
+        self.status_label.configure(text=f'兼容提取失败：{error}' if error else message,
+                                    text_color=self.c['warning' if error or missing else 'success_text'])
+        self.progress_bar.configure(progress_color=self.c['warning' if error or missing else 'success'])
+        self.progress_bar.set(1)
+        self.update_selection_summary()
         self._save_cache(getattr(self, 'current_shortcode', 'post'))
 
     def _refresh_media_card(self, index):
@@ -1892,7 +2029,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         self.running = False
         if previews_pending:
-            self.status_label.configure(text='提取完成，可选择或下载；预览正在加载',text_color=self.c['accent_text'])
+            self.status_label.configure(text=f'已提取 {len(self.image_data)} 项，正在加载预览',text_color=self.c['accent_text'])
             self.update_selection_summary()
             return
         self.status_label.configure(text="完成",text_color=self.c["success_text"])
@@ -2004,6 +2141,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         if self.running: return
         self._thumbnail_generation += 1
         self._thumbnail_loading = False
+        self._ig_recovery_attempted = False
+        self._ig_recovery_pending = False
+        self._ig_recovery_active = False
         for widget in self.preview_grid.winfo_children():
             widget.destroy()
         self.image_data.clear()
@@ -2048,9 +2188,11 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.progress_bar.configure(progress_color=self.c["accent"])
         self.progress_bar.set(0)
 
-        threading.Thread(target=self._download_worker, args=(media_list, save_dir), daemon=True).start()
+        prefix = getattr(self, 'current_shortcode', 'post')
+        proxy = self.tiktok_extractor.proxy if prefix.startswith('tiktok_') else self.proxy_var.get().strip() or None
+        threading.Thread(target=self._download_worker, args=(media_list, save_dir, proxy), daemon=True).start()
 
-    def _download_worker(self, media_list, save_dir):
+    def _download_worker(self, media_list, save_dir, proxy=None):
         def progress_callback(completed, total):
             self.after(0, self.progress_bar.set, completed / total)
             self.after(0, lambda: self.status_label.configure(text=f"下载中 {completed}/{total}"))
@@ -2058,8 +2200,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         prefix = getattr(self, "current_shortcode", "post")
         try:
             succeeded, total = download_media_parallel(media_list, save_dir, prefix, progress_callback,
-                                                      self.tiktok_extractor.request_headers,
-                                                      self.tiktok_extractor.proxy if prefix.startswith('tiktok_') else None)
+                                                      self.tiktok_extractor.request_headers, proxy)
             self.after(0, self._download_complete, succeeded, total)
         except Exception as error:
             self.after(0, self._download_complete, 0, len(media_list), str(error))
@@ -2070,8 +2211,10 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         failed = total - succeeded if total is not None else 0
         message = f'下载完成：成功 {succeeded}，失败 {failed}' if total is not None else '下载完成！'
         self.status_label.configure(text=error or message,text_color=self.c['error' if failed or error else 'success_text'])
-        self.progress_bar.configure(progress_color=self.c["success"])
+        self.progress_bar.configure(progress_color=self.c['error' if failed or error else 'success'])
         self.progress_bar.set(1.0)
+        if self._ig_recovery_pending:
+            self.after(0, self._start_instagram_recovery, self._thumbnail_generation)
 
     # ---------- Cookie 引导 ----------
     def _show_cookie_guide(self):
@@ -2499,11 +2642,17 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             if cached:
                 self._thumbnail_generation += 1
                 self._thumbnail_loading = False
+                self._ig_recovery_attempted = False
+                self._ig_recovery_pending = False
+                self._ig_recovery_active = False
                 self.current_shortcode = shortcode
+                self._fetch_url = url
                 self.image_data = cached
                 self.url_var.set(url)
                 self._render_thumbnails()
                 self.status_label.configure(text=f"从缓存加载 {len(cached)} 个媒体")
+                if link.platform == 'Instagram' and any(item[3] is None for item in cached):
+                    self._start_instagram_recovery(self._thumbnail_generation)
                 return
 
         # fallback: 仅填入 URL，需重新提取

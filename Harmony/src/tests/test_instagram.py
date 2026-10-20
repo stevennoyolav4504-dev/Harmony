@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import main
@@ -27,6 +28,20 @@ def sidecar():
 
 
 class InstagramFastPathRegression(unittest.TestCase):
+    def test_worker_records_extraction_failure_and_reports_it_to_ui(self):
+        for url in ('https://www.instagram.com/p/target/','https://x.com/creator/status/12345',
+                    'https://www.tiktok.com/@creator/video/1234567890123456789'):
+            platform=main.parse_post_link(url).platform
+            extractor=Mock();extractor.extract.side_effect=RuntimeError('backend failure')
+            context=SimpleNamespace(ig_extractor=extractor,x_extractor=extractor,tiktok_extractor=extractor,
+                                    after=Mock(),_fetch_complete=Mock())
+            with self.subTest(platform=platform),self.assertLogs(main.logger,level='ERROR') as logged:
+                main.InstagramDownloaderApp._fetch_worker(context,url,None)
+                self.assertIn(platform+' 提取失败',logged.output[0])
+                self.assertIn('RuntimeError: backend failure',logged.output[0])
+                context.after.assert_called_once_with(0,context._fetch_complete,[],'backend failure')
+                self.assertEqual(extractor.close.call_count,int(platform=='Instagram'))
+
     def test_extraction_is_headless_with_bundled_chromium_and_keeps_proxy(self):
         engine=Mock();browser=engine.chromium.launch.return_value
         context=browser.new_context.return_value

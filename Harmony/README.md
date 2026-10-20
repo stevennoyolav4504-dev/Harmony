@@ -1,6 +1,6 @@
 # Harmony 2.2 — Instagram / X / TikTok & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.2.2-F454A4.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.2.4-F454A4.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -10,6 +10,14 @@
 ---
 
 ## 2.2 更新
+
+2.2.4 保留正常后台提取；IG 预览重试后仍有失败项时，自动打开有头浏览器，跳过快速 JSON 数据，按旧版逐页轮播重新提取一次。使用新地址补救失败项并更新下载地址，保留已成功的图片、原列表与勾选。正在下载时会等待完成再补救，单次提取最多自动启动一次，不循环弹窗；打开有失败预览的 IG 历史记录也会针对该帖补救。
+
+87 项回归测试通过。本地故障页面配合 agent-browser 有头会话，验证两项持续失败的预览通过实际轮播恢复、选择及好图不变，选中原文件下载校验通过；未据此宣称线上故障帖已恢复。
+
+2.2.3 为预览和媒体下载加入自动重试，短暂断连、超时、SSL 提前断开、不完整响应及临时服务器错误最多重试 2 次，保留 TLS 证书验证。成功项不重复下载，失败的临时文件会被清理，已有完整文件保留。IG / X 下载沿用设置中的代理，预览失败不再显示“仍可下载”，下载按实际结果显示成功与失败数量；新日志使用 UTF-8 并补记提取和预览错误。
+
+75 项回归测试及本地真实断连恢复流程通过。按用户授权复测此次失败的 4 个媒体地址，当前预览与完整下载均成功，图片文件校验通过，未改变个人配置或 Cookie；这 4 项在此前日志中属于同一 CDN 节点的连接中断。
 
 2.2.2 将 IG 提取改为后台静默运行，正常提取不再弹出浏览器窗口。底层继续使用内置 Chromium 和原有登录信息；登录失效或需要验证时在 Harmony 内提示，只有主动前往设置点击一键登录才打开登录窗口。
 
@@ -42,7 +50,7 @@ TikTok 解析、封面和下载沿用设置中的代理，读取已有 cookies.j
 新版采用品牌色卡片布局、文字侧边栏与顶部平台切换，并使用官方四色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
 
-- [2.2.2 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.2.2)
+- [2.2.4 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.2.4)
 - [完整更新日志](CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 

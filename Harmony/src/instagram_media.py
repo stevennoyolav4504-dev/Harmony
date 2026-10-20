@@ -3,6 +3,30 @@ import json
 from urllib.parse import urlsplit
 
 
+def instagram_media_identity(media):
+    """A media filename survives CDN host, signature and image-format changes."""
+    return media[1], urlsplit(media[0]).path.rsplit('/', 1)[-1].split('.')[0]
+
+
+def map_instagram_recovery(original, legacy):
+    """Map old DOM results without dropping videos or shifting a partial post."""
+    matches = {}
+    for index, item in enumerate(original):
+        key = instagram_media_identity((item[0], item[4]))
+        candidates = [j for j, candidate in enumerate(legacy) if instagram_media_identity(candidate) == key]
+        if len(candidates) == 1:
+            matches[index] = candidates[0]
+    # A full, consistently ordered traversal can also refresh changed filenames.
+    # Partial traversals use identities only, so a missing video cannot shift
+    # subsequent images onto the wrong cards.
+    if (len(original) == len(legacy) and
+            all(item[4] == candidate[1] for item, candidate in zip(original, legacy)) and
+            all(index == candidate for index, candidate in matches.items()) and
+            len({instagram_media_identity(item) for item in legacy}) == len(legacy)):
+        matches = {index: index for index in range(len(original))}
+    return {index: legacy[candidate] for index, candidate in matches.items()}
+
+
 def _media_url(value):
     if not isinstance(value, str): return None
     parts = urlsplit(value)

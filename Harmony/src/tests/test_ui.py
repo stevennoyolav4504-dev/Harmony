@@ -97,6 +97,26 @@ class UIRegression(unittest.TestCase):
         self.assertFalse(a.image_data)
         self.assertTrue(a.preview_grid.winfo_children())
 
+    def test_media_download_captures_proxy_before_starting_worker(self):
+        a=self.app;a.running=False;a.clear_all()
+        old_proxy=a.proxy_var.get();old_tiktok_proxy=a.tiktok_extractor.proxy
+        old_shortcode=getattr(a,'current_shortcode','post')
+        try:
+            a.proxy_var.set('http://127.0.0.1:9876')
+            a.tiktok_extractor.proxy='http://127.0.0.1:9877'
+            a.image_data=[('https://cdn.example/photo.jpg',1,1,None,'image')];a.selected_indices={0}
+            for prefix,proxy in [('post','http://127.0.0.1:9876'),('x_post','http://127.0.0.1:9876'),('tiktok_post','http://127.0.0.1:9877')]:
+                a.running=False;a.current_shortcode=prefix
+                with patch.object(main.threading,'Thread') as worker:
+                    a.download_all()
+                    self.assertEqual(worker.call_args.kwargs['args'][2],proxy)
+            a._download_complete(10,14)
+            self.assertIn('成功 10，失败 4',a.status_label.cget('text'))
+            self.assertEqual(a.progress_bar.cget('progress_color'),a.c['error'])
+        finally:
+            a.running=False;a.proxy_var.set(old_proxy);a.tiktok_extractor.proxy=old_tiktok_proxy
+            a.current_shortcode=old_shortcode;a.clear_all()
+
     def test_instagram_previews_keep_order_selection_and_download_state(self):
         a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram')
         a._fetch_url='https://www.instagram.com/p/preview/'
@@ -124,8 +144,66 @@ class UIRegression(unittest.TestCase):
         a._apply_instagram_preview(0,('https://scontent.cdninstagram.com/old.jpg',1,1,Image.new('RGB',(1,1)),'image'),generation,1,1)
         a._finish_instagram_previews(generation)
         self.assertTrue(a.image_data[0][0].endswith('/new.jpg'))
+        a._ig_recovery_attempted=True
         a._thumbnail_loading=True;a._finish_instagram_previews(a._thumbnail_generation)
         self.assertIn('预览不可用',a.card_buttons[0]['res_str']);self.assertEqual(len(a.image_data),1)
+        self.assertIn('1 项预览加载失败',a.status_label.cget('text'))
+        self.assertNotIn('仍可下载',a.status_label.cget('text'))
+        a.clear_all()
+
+    def test_preview_failure_starts_one_recovery_and_keeps_selection(self):
+        a=self.app;a.running=False;a.clear_all();a._fetch_url='https://www.instagram.com/p/recover/'
+        original=Image.new('RGB',(12,12),'pink')
+        a.image_data=[('https://cdn.example/first.jpg',12,12,original,'image'),('https://cdn.example/last.jpg',0,0,None,'image')]
+        a._render_thumbnails(previews_pending=True);a.toggle_card_selection(0)
+        generation=a._thumbnail_generation
+        with patch.object(main.threading,'Thread') as worker:
+            a._finish_instagram_previews(generation)
+            self.assertTrue(a.running);self.assertTrue(a._ig_recovery_active)
+            self.assertEqual(a.download_btn.cget('state'),'disabled')
+            a._finish_instagram_previews(generation);a._start_instagram_recovery(generation)
+            worker.assert_called_once();self.assertEqual(a.selected_indices,{1})
+        recovered=Image.new('RGB',(20,20),'blue')
+        a._finish_instagram_recovery(generation,{0:('wrong',0,0,None,'image'),1:('https://new.example/last.jpg',20,20,recovered,'image')},None)
+        self.assertIs(a.image_data[0][3],original);self.assertEqual(a.image_data[0][0],'https://cdn.example/first.jpg')
+        self.assertEqual(a.image_data[1][0],'https://new.example/last.jpg');self.assertEqual(a.selected_indices,{1})
+        self.assertFalse(a.running);self.assertFalse(a._ig_recovery_active)
+        self.assertIn('全部恢复',a.status_label.cget('text'));a.clear_all()
+
+    def test_recovery_waits_for_download_and_does_not_loop_on_failure(self):
+        a=self.app;a.running=False;a.clear_all();a._fetch_url='https://www.instagram.com/p/recover/'
+        a.image_data=[('https://cdn.example/first.jpg',0,0,None,'image')]
+        a._render_thumbnails(previews_pending=True);generation=a._thumbnail_generation
+        a.running=True
+        with patch.object(main.threading,'Thread') as worker:
+            a._finish_instagram_previews(generation)
+            self.assertTrue(a._ig_recovery_pending);worker.assert_not_called()
+            a._download_complete(0,1);a.update()
+            worker.assert_called_once();self.assertTrue(a._ig_recovery_active)
+            a._finish_instagram_recovery(generation,{},'browser closed')
+            a._finish_instagram_previews(generation)
+            worker.assert_called_once();self.assertFalse(a.running)
+            self.assertEqual(len(a.image_data),1)
+        a.clear_all()
+
+    def test_recovery_ignores_old_posts_and_skips_healthy_previews(self):
+        a=self.app;a.running=False;a.clear_all();a._fetch_url='https://www.instagram.com/p/recover/'
+        image=Image.new('RGB',(12,12),'pink');a.image_data=[('https://cdn.example/first.jpg',12,12,image,'image')]
+        a._render_thumbnails(previews_pending=True);generation=a._thumbnail_generation
+        with patch.object(main.threading,'Thread') as worker:
+            a._finish_instagram_previews(generation);worker.assert_not_called()
+            a._finish_instagram_recovery(generation-1,{0:('wrong',0,0,None,'image')},None)
+            self.assertIs(a.image_data[0][3],image)
+            a.clear_all();a._start_instagram_recovery(generation);worker.assert_not_called()
+
+    def test_cached_instagram_failure_recovers_the_clicked_post(self):
+        a=self.app;a.running=False;a.clear_all();a._fetch_url='https://www.instagram.com/p/old/'
+        cached=[('https://cdn.example/first.jpg',0,0,None,'image')]
+        url='https://www.instagram.com/p/cached/'
+        with patch.object(a,'_load_from_cache',return_value=cached),patch.object(main.threading,'Thread') as worker:
+            a._on_history_click(url)
+            self.assertEqual(worker.call_args.kwargs['args'][0],url)
+            a._finish_instagram_recovery(a._thumbnail_generation,{},'unavailable')
         a.clear_all()
 
     def test_clip_entries_and_download_dispatch(self):
