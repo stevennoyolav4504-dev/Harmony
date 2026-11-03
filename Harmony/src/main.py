@@ -34,7 +34,8 @@ from windows_integration import apply_window_icons, apply_titlebar_theme, set_ap
 from windows_rendering import install_restore_buffer
 from harmony_theme import COLOR_SCHEMES, select_font
 from media_sources import XMediaExtractor, TikTokMediaExtractor, parse_post_link
-from instagram_media import read_complete_instagram_post, instagram_media_identity, map_instagram_recovery
+from threads_media import ThreadsMediaExtractor
+from instagram_media import read_complete_instagram_post, instagram_media_identity, map_instagram_recovery, _media_url
 from video_tasks import VideoTaskQueue, VideoOptions, TaskCancelled, parse_video_links, run_media_process, validate_clip
 
 # ---------- 打包路径兼容 ----------
@@ -680,21 +681,69 @@ def _retry_media_transfer(operation, label):
             time.sleep(delay)
 
 
-def _read_instagram_preview(media, proxy, cancelled, label):
+def _read_instagram_preview(media, proxy, cancelled, label, headers=None, session=None):
     url, kind, thumb = media
     resource = thumb if kind == 'video' else url
     if not resource: raise ValueError('No preview')
-    options = {'headers': {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}, 'timeout': 10}
+    options = {'headers': {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}, 'timeout': (5, 20)}
+    if headers: options['headers'].update(headers)
     if proxy: options['proxies'] = {'http': proxy, 'https': proxy}
     def read():
         if cancelled(): raise RuntimeError('Preview no longer needed')
-        with requests.get(resource, **options) as response:
+        with (session.get if session is not None else requests.get)(resource, **options) as response:
             response.raise_for_status()
             return response.content
     content = _retry_media_transfer(read, label)
     with Image.open(BytesIO(content)) as source:
         image = source.copy()
     return url, image.width, image.height, image, kind
+
+
+def _read_instagram_browser_previews(media_by_index, cookies_path, proxy, cancelled, on_preview=None, extractor=None):
+    """Retry only missing previews with Chromium's TLS stack, never a new post.
+
+    A single hidden context reuses connections across the failed CDN resources.
+    The legacy carousel may supply its existing context. Original signed URLs,
+    certificate checks, item identities and the user's proxy remain unchanged.
+    """
+    allowed = {index: media for index, media in media_by_index.items()
+               if _media_url(media[2] if media[1] == 'video' else media[0])}
+    if not allowed or cancelled(): return {}
+    owned = extractor is None
+    extractor = extractor or InstagramExtractor(cookies_path, proxy)
+    page, updates = None, {}
+    try:
+        page = extractor._context.new_page() if extractor._context is not None else extractor._init_browser()
+        # Also validate every redirect/subresource before Chromium sends it.
+        page.route('**/*', lambda route: route.continue_() if _media_url(route.request.url) else route.abort())
+        deadline = time.monotonic() + 45
+        for index, (url, kind, thumb) in allowed.items():
+            remaining = deadline - time.monotonic()
+            if cancelled() or remaining <= 0: break
+            resource = thumb if kind == 'video' else url
+            try:
+                response = page.goto(resource, referer='https://www.instagram.com/',
+                                     wait_until='load', timeout=min(20000, max(1, int(remaining * 1000))))
+                if response is None or not response.ok or not _media_url(response.url):
+                    raise ValueError('CDN did not return an image')
+                with Image.open(BytesIO(response.body())) as source:
+                    image = source.copy()
+                if cancelled(): break
+                item = (url, image.width, image.height, image, kind)
+                updates[index] = item
+                if on_preview: on_preview(index, item)
+            except Exception as error:
+                if not cancelled():
+                    logger.warning('后台补载第 %d 项失败（%s，%s）', index + 1,
+                                   urlsplit(resource).hostname, type(error).__name__)
+    except Exception as error:
+        if not cancelled(): logger.warning('后台预览补载不可用（%s）', type(error).__name__)
+    finally:
+        if page is not None:
+            try: page.close()
+            except Exception: pass
+        if owned: extractor.close()
+    return updates
 
 
 def download_media_parallel(media_list, save_dir, prefix="post", progress_callback=None, request_headers=None, proxy=None):
@@ -781,7 +830,8 @@ def _get_pil_font(size):
     """获取跨 Windows PIL 字体，按优先级尝试。
     打包后其他电脑可能没有中文语言包，不依赖 msyh。"""
     candidates = [
-        "segoeui.ttf",   # Win10+ 所有语言版本均有，CJK 支持较好
+        "msyh.ttc",      # 中文媒体标签，避免视频卡片显示为方框
+        "segoeui.ttf",   # 非中文 Windows 字体回退
         "arial.ttf",     # 所有 Windows 均有，CJK 字形可能缺失但不崩溃
     ]
     for name in candidates:
@@ -1453,6 +1503,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.ig_extractor = InstagramExtractor(cookies_path, ig_proxy)
         self.x_extractor = XMediaExtractor(cookies_path)
         self.tiktok_extractor = TikTokMediaExtractor(cookies_path)
+        self.threads_extractor = ThreadsMediaExtractor(cookies_path)
         self.yt_downloader = YouTubeDownloader()
         self.video_queue = VideoTaskQueue(self._run_video_task, concurrency=3)
         self._yt_queue_poll_id = None
@@ -1713,6 +1764,10 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
             if link.platform == 'X':
                 media_list = self.x_extractor.extract(url, status_callback, proxy=proxy)
+            elif link.platform == 'Threads':
+                media_list = self.threads_extractor.extract(url, status_callback, proxy=proxy)
+                self.after(0, self._fetch_complete, media_list, None, self.threads_extractor.resolved_link)
+                return
             elif link.platform == 'TikTok':
                 media_list = self.tiktok_extractor.extract(url, status_callback, proxy=proxy)
                 self.after(0, self._fetch_complete, media_list, None, self.tiktok_extractor.resolved_link)
@@ -1753,13 +1808,18 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         self._add_to_history(getattr(self, '_fetch_url', self.url_var.get().strip()), len(media_list))
 
-        try: is_instagram = parse_post_link(getattr(self, '_fetch_url', self.url_var.get())).platform == 'Instagram'
-        except ValueError: is_instagram = False
-        if is_instagram:
+        try: media_platform = parse_post_link(getattr(self, '_fetch_url', self.url_var.get())).platform
+        except ValueError: media_platform = ''
+        if media_platform in ('Instagram', 'Threads'):
             self._thumbnail_generation += 1
             self._thumbnail_loading = True
             self.image_data = [(url, 0, 0, None, kind) for url, kind, _ in media_list]
             self._render_thumbnails(previews_pending=True)
+            if media_platform == 'Threads':
+                threading.Thread(target=self._load_instagram_previews,
+                    args=(media_list, self._thumbnail_generation, self.threads_extractor.proxy,
+                          self.threads_extractor.request_headers), daemon=True).start()
+                return
             proxy = self.proxy_var.get().strip() or None
             threading.Thread(target=self._load_instagram_previews,
                 args=(media_list, self._thumbnail_generation, proxy), daemon=True).start()
@@ -1771,27 +1831,54 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         try: self.after(0, callback, *args)
         except (RuntimeError, tk.TclError): pass
 
-    def _load_instagram_previews(self, media_list, generation, proxy):
+    def _load_instagram_previews(self, media_list, generation, proxy, request_headers=None):
+        cancelled = lambda: self._closing or generation != self._thumbnail_generation
+        local, sessions, missing = threading.local(), [], {}
+        session_lock = threading.Lock()
         def fetch(item):
             index, (url, kind, thumb) = item
-            if self._closing or generation != self._thumbnail_generation: return index, None
+            if cancelled(): return index, None
             try:
+                session = None
+                if request_headers is None:
+                    if not hasattr(local, 'session'):
+                        local.session = requests.Session()
+                        with session_lock: sessions.append(local.session)
+                    session = local.session
                 return index, _read_instagram_preview((url, kind, thumb), proxy,
-                    lambda: self._closing or generation != self._thumbnail_generation, f'预览第 {index+1} 项')
+                    cancelled, f'预览第 {index+1} 项',
+                    headers=request_headers(thumb if kind == 'video' else url) if request_headers else None,
+                    session=session)
             except Exception as error:
-                if not self._closing and generation == self._thumbnail_generation:
-                    logger.warning('预览第 %d 项不可用（%s）', index + 1, type(error).__name__)
+                if not cancelled():
+                    response = getattr(error, 'response', None)
+                    logger.warning('预览第 %d 项不可用（%s，%s，HTTP %s）', index + 1,
+                                   urlsplit(thumb if kind == 'video' else url).hostname,
+                                   type(error).__name__, response.status_code if response is not None else '-')
                 return index, (url, 0, 0, None, kind)
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(fetch, item) for item in enumerate(media_list)]
-            for completed, future in enumerate(as_completed(futures), 1):
-                if self._closing or generation != self._thumbnail_generation:
-                    for pending in futures: pending.cancel()
-                    break
-                index, item = future.result()
-                if item is not None:
-                    self._schedule_media_callback(self._apply_instagram_preview, index, item, generation, completed, len(media_list))
+        try:
+            with ThreadPoolExecutor(max_workers=2 if request_headers is None else 4) as executor:
+                futures = [executor.submit(fetch, item) for item in enumerate(media_list)]
+                for completed, future in enumerate(as_completed(futures), 1):
+                    if cancelled():
+                        for pending in futures: pending.cancel()
+                        break
+                    index, item = future.result()
+                    if item is not None:
+                        if item[3] is None: missing[index] = media_list[index]
+                        self._schedule_media_callback(self._apply_instagram_preview, index, item, generation, completed, len(media_list))
+        finally:
+            for session in sessions: session.close()
+        if missing and request_headers is None and not cancelled():
+            self._schedule_media_callback(self._instagram_background_preview_status, generation, len(missing))
+            _read_instagram_browser_previews(missing, self.ig_extractor.cookies_path, proxy, cancelled,
+                lambda index, item: self._schedule_media_callback(self._apply_instagram_preview,
+                    index, item, generation, len(media_list), len(media_list)))
         self._schedule_media_callback(self._finish_instagram_previews, generation)
+
+    def _instagram_background_preview_status(self, generation, missing):
+        if self._closing or generation != self._thumbnail_generation or self.running: return
+        self.status_label.configure(text=f'正在后台补载 {missing} 项预览…')
 
     def _apply_instagram_preview(self, index, item, generation, completed, total):
         if self._closing or generation != self._thumbnail_generation or index >= len(self.image_data): return
@@ -1867,6 +1954,10 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                         return
                     index, item = future.result()
                     updates[index] = item
+            missing = {index: candidates[index] for index, item in updates.items() if item[3] is None}
+            if missing and not cancelled():
+                updates.update(_read_instagram_browser_previews(missing, extractor.cookies_path,
+                    proxy, cancelled, extractor=extractor))
             if not media: error = '浏览器未提取到媒体，已保留原有结果'
         except Exception as failure:
             logger.exception('IG 有头轮播补救失败')
@@ -2189,7 +2280,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.progress_bar.set(0)
 
         prefix = getattr(self, 'current_shortcode', 'post')
-        proxy = self.tiktok_extractor.proxy if prefix.startswith('tiktok_') else self.proxy_var.get().strip() or None
+        proxy = (self.threads_extractor.proxy if prefix.startswith('threads_') else
+                 self.tiktok_extractor.proxy if prefix.startswith('tiktok_') else self.proxy_var.get().strip() or None)
         threading.Thread(target=self._download_worker, args=(media_list, save_dir, proxy), daemon=True).start()
 
     def _download_worker(self, media_list, save_dir, proxy=None):
@@ -2199,8 +2291,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         prefix = getattr(self, "current_shortcode", "post")
         try:
+            headers = self.threads_extractor.request_headers if prefix.startswith('threads_') else self.tiktok_extractor.request_headers
             succeeded, total = download_media_parallel(media_list, save_dir, prefix, progress_callback,
-                                                      self.tiktok_extractor.request_headers, proxy)
+                                                      headers, proxy)
             self.after(0, self._download_complete, succeeded, total)
         except Exception as error:
             self.after(0, self._download_complete, 0, len(media_list), str(error))
@@ -2533,7 +2626,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         ts = first_item.get("timestamp", "")
         count = first_item.get("count", 0)
         url = first_item.get("url", "")
-        platform = 'TikTok' if short.startswith('tiktok_') else 'X' if short.startswith('x_') else ''
+        platform = 'Threads' if short.startswith('threads_') else 'TikTok' if short.startswith('tiktok_') else 'X' if short.startswith('x_') else ''
         label = f"{platform + ' · ' if platform else ''}{short}...  {count}项  {ts}"
         btn = ctk.CTkButton(
             self.hist_inline, text=label, font=(self.ui_font, 12), anchor="w", image=self._img("link" if platform else "instagram",size=21),
@@ -2629,7 +2722,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         try:
             link = parse_post_link(url)
             shortcode = link.cache_key
-            if link.platform == 'TikTok':
+            if link.platform in ('TikTok', 'Threads'):
                 # Signed CDN URLs and their request cookies expire. Refresh the
                 # post instead of reviving stale links or persisting credentials.
                 self.url_var.set(link.url)

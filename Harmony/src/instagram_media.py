@@ -29,7 +29,11 @@ def map_instagram_recovery(original, legacy):
 
 def _media_url(value):
     if not isinstance(value, str): return None
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+        if parts.port not in (None, 443): return None
+    except ValueError:
+        return None
     host = (parts.hostname or '').lower()
     if parts.scheme == 'https' and not parts.username and not parts.password and (
             host == 'cdninstagram.com' or host.endswith('.cdninstagram.com') or

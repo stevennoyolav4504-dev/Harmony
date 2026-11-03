@@ -270,6 +270,35 @@ class UIRegression(unittest.TestCase):
         self.assertIn('TikTok',a.platform_buttons['Instagram'].cget('text'))
         a.clear_all();a.running=False
 
+    def test_threads_routing_cards_history_and_download_context(self):
+        from media_sources import parse_post_link
+        a=self.app;a.running=False;a.clear_all();a.url_var.set('https://www.threads.net/@creator/post/ABC_123')
+        with patch.object(main.threading,'Thread'):
+            a.fetch_images();self.assertEqual(a.current_shortcode,'threads_ABC_123')
+        a.running=False;resolved=parse_post_link('https://www.threads.com/@creator/post/ABC_123')
+        a.threads_extractor.resolved_link=resolved;a.threads_extractor.proxy='http://127.0.0.1:9876'
+        with patch.object(a.threads_extractor,'extract',return_value=[]) as threads,patch.object(a.ig_extractor,'extract') as ig, \
+             patch.object(a.ig_extractor,'close') as close,patch.object(a,'_fetch_complete') as done:
+            a._fetch_worker(a.url_var.get(),None);a.update()
+            threads.assert_called_once();ig.assert_not_called();close.assert_not_called()
+            done.assert_called_once_with([],None,resolved)
+        media=[('https://scontent.cdninstagram.com/a.jpg','image',''),('https://video.fbcdn.net/a.mp4','video','')]
+        with patch.object(a,'_add_to_history'),patch.object(main.threading,'Thread') as worker:
+            a._fetch_complete(media,None,resolved)
+            self.assertEqual(len(a.card_buttons),2);self.assertEqual(len(a.image_data),2)
+            self.assertEqual(worker.call_args.kwargs['args'][2],'http://127.0.0.1:9876')
+            self.assertIs(worker.call_args.kwargs['args'][3].__self__,a.threads_extractor)
+        with patch.object(main.threading,'Thread') as worker:
+            a._finish_instagram_previews(a._thumbnail_generation);worker.assert_not_called()
+        with patch.object(main,'download_media_parallel',return_value=(2,2)) as download:
+            a._download_worker(media,a.dir_var.get(),a.threads_extractor.proxy);a.update()
+            self.assertIs(download.call_args.args[4].__self__,a.threads_extractor)
+            self.assertEqual(download.call_args.args[5],'http://127.0.0.1:9876')
+        with patch.object(a,'fetch_images') as fetch,patch.object(a,'_load_from_cache') as cache:
+            a._on_history_click(resolved.url);fetch.assert_called_once();cache.assert_not_called()
+        self.assertIn('Threads',a.platform_buttons['Instagram'].cget('text'))
+        a.running=False;a.clear_all();a.threads_extractor.proxy=None
+
     def test_tiktok_resolved_id_replaces_shortlink_before_history_and_download(self):
         from media_sources import parse_post_link
         a=self.app;a.running=True

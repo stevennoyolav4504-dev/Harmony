@@ -18,23 +18,35 @@ class PostLink:
 
     @property
     def cache_key(self):
-        prefix = {'X': 'x_', 'TikTok': 'tiktok_'}.get(self.platform, '')
+        prefix = {'X': 'x_', 'TikTok': 'tiktok_', 'Threads': 'threads_'}.get(self.platform, '')
         return prefix + self.post_id
 
 
 def parse_post_link(url):
-    # Mobile TikTok shares may include a caption around the actual URL.
+    # Mobile shares may include a caption around the actual URL.
     raw = url.strip()
     if not raw.startswith(('http://', 'https://')):
         urls = re.findall(r'https?://[^\s<>"\u4e00-\u9fff]+', raw)
         if len(urls) == 1:
             candidate = urls[0].rstrip('.,;!?，。；！？”）)]}')
-            if (urlsplit(candidate).hostname or '').lower() in ('tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'):
+            if (urlsplit(candidate).hostname or '').lower() in ('tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
+                                                               'threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'):
                 url = candidate
     parts = urlsplit(url.strip())
     host = (parts.hostname or '').lower()
     if parts.scheme not in ('http', 'https') or parts.username or parts.password:
-        raise ValueError('请粘贴有效的 Instagram、X 或 TikTok 帖子链接')
+        raise ValueError('请粘贴有效的 Instagram、Threads、X 或 TikTok 帖子链接')
+    if host in ('threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'):
+        if parts.port not in (None, 80, 443): raise ValueError('Threads 链接端口无效')
+        match = re.fullmatch(r'/@([A-Za-z0-9_.]+)/post/([A-Za-z0-9_-]+)/?', parts.path)
+        if match:
+            return PostLink('Threads', match[2], f'https://www.threads.com/@{match[1]}/post/{match[2]}')
+        match = re.fullmatch(r'/t/([A-Za-z0-9_-]+)/?', parts.path)
+        if match: return PostLink('Threads', match[1], f'https://www.threads.com/t/{match[1]}')
+        match = re.fullmatch(r'/share/([A-Za-z0-9_-]+)/?', parts.path)
+        if match:
+            return PostLink('Threads', 'short_' + match[1],
+                            urlunsplit(('https', 'www.threads.com', parts.path, parts.query, '')), True)
     if host in ('instagram.com', 'www.instagram.com', 'm.instagram.com'):
         match = re.fullmatch(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)/?', parts.path)
         if match:
@@ -57,7 +69,7 @@ def parse_post_link(url):
         match = None
     if match:
         return PostLink('TikTok', f'short_{match[1]}', urlunsplit(('https', host, parts.path, parts.query, '')), True)
-    raise ValueError('请粘贴 Instagram、X 或 TikTok 帖子链接（支持 TikTok 分享短链接）')
+    raise ValueError('请粘贴 Instagram、Threads、X 或 TikTok 帖子链接（支持分享短链接）')
 
 
 def _http_url(url):

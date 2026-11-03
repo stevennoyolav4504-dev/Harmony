@@ -162,7 +162,7 @@ class HarmonyUI:
         switch.pack(side="right")
         self.platform_buttons={}
         for platform in ("Instagram","YouTube"):
-            b=ctk.CTkButton(switch,text='Instagram / X / TikTok' if platform=='Instagram' else platform,image=self._img(platform.lower(),size=22),width=206 if platform=='Instagram' else 148,height=40,
+            b=ctk.CTkButton(switch,text='Instagram / Threads / X / TikTok' if platform=='Instagram' else platform,image=self._img(platform.lower(),size=22),width=280 if platform=='Instagram' else 148,height=40,
                 corner_radius=10,font=(self.ui_font,13),command=lambda p=platform:self._switch_platform(p))
             b.pack(side="left",padx=3,pady=3)
             self.platform_buttons[platform]=b
@@ -190,7 +190,7 @@ class HarmonyUI:
         row.pack(fill="x",padx=24,pady=(3,20 if yt else 26))
         self._label(row,"",image=self._img("link",c["text_muted"])).pack(side="left",padx=(18,8))
         var=self.yt_url_var if yt else self.url_var
-        entry=ctk.CTkEntry(row,textvariable=var,placeholder_text="https://www.youtube.com/watch?v=..." if yt else "Instagram / X / TikTok 帖子链接",
+        entry=ctk.CTkEntry(row,textvariable=var,placeholder_text="https://www.youtube.com/watch?v=..." if yt else "Instagram / Threads / X / TikTok 帖子链接",
             height=54,border_width=0,fg_color=c["bg_card"],font=(self.ui_font,16),text_color=c["text_primary"],placeholder_text_color=c["placeholder"])
         btn=self._button(row,"解析视频" if yt else "提取",self._yt_parse if yt else self.fetch_images,True,"arrow",158,56)
         btn.pack(side="right",padx=4,pady=4)
@@ -198,7 +198,7 @@ class HarmonyUI:
         clear.pack(side="right",padx=12)
         entry.pack(side="left",fill="x",expand=True,pady=4)
         # CTkEntry doesn't display its own placeholder with a StringVar attached.
-        hint=self._label(entry,"https://www.youtube.com/watch?v=..." if yt else "Instagram / X / TikTok 帖子链接",
+        hint=self._label(entry,"https://www.youtube.com/watch?v=..." if yt else "Instagram / Threads / X / TikTok 帖子链接",
                          16,color=c["placeholder"],fg_color=c["bg_card"],anchor="w",cursor="xterm")
         def focus_entry_from_hint(_event=None):
             # The placeholder is a label placed over the native entry. Hide it
@@ -238,7 +238,7 @@ class HarmonyUI:
     def _build_instagram(self,page):
         c=self.c
         card=self._card(page); card.pack(fill="x",pady=(0,16))
-        self._step(card,1,"粘贴 Instagram / X / TikTok 链接","支持图片与视频，以及 TikTok 图片帖、分享短链接",
+        self._step(card,1,"粘贴 Instagram / Threads / X / TikTok 链接","支持图片、视频、混合帖与分享链接",
             lambda row:self._button(row,"?",self._show_cookie_guide,width=32,height=32).pack(side="right"))
         self._link_row(card)
         pair=ctk.CTkFrame(page,fg_color="transparent"); pair.pack(fill="x",pady=(0,16))
@@ -455,7 +455,7 @@ class HarmonyUI:
         brand.pack(fill="x",padx=25,pady=(20,0))
         self._label(brand,"",image=self._brand_image("logo",200)).pack(padx=30,pady=22)
         self._label(popup,"让喜欢的内容，留在身边。",22,True).pack(anchor="w",padx=25,pady=(18,16))
-        self._label(popup,"Instagram / X / TikTok\n粘贴帖子链接 → 提取 → 选择媒体 → 下载\nTikTok 支持视频、图片帖和分享短链接。\n右键查看预览。\n\nYouTube / B站\n单条链接或批量粘贴 → 选择格式 → 加入队列\n支持 1–5 个同时下载、片段及 SRT 字幕。",14,justify="left").pack(anchor="w",padx=25)
+        self._label(popup,"Instagram / Threads / X / TikTok\n粘贴帖子链接 → 提取 → 选择媒体 → 下载\nThreads 支持公开图片、视频、混合帖及分享链接。\nTikTok 支持视频、图片帖和分享短链接。\n右键查看预览。\n\nYouTube / B站\n单条链接或批量粘贴 → 选择格式 → 加入队列\n支持 1–5 个同时下载、片段及 SRT 字幕。",14,justify="left").pack(anchor="w",padx=25)
         self._button(popup,"Instagram 登录帮助",lambda:(popup.destroy(),self._show_cookie_guide()),width=200).pack(anchor="w",padx=25,pady=20)
 
     def _yt_parse(self):

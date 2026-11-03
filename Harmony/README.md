@@ -1,13 +1,23 @@
-# Harmony 2.2 — Instagram / X / TikTok & YouTube 多媒体下载器
+# Harmony 2.3 — Instagram / Threads / X / TikTok & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.2.4-F454A4.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.3.1-F454A4.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> 开箱即用的桌面工具，支持 **Instagram / X / TikTok 图片和视频提取** 与 **YouTube 视频并行下载**。
+> 开箱即用的桌面工具，支持 **Instagram / Threads / X / TikTok 图片和视频提取** 与 **YouTube 视频并行下载**。
 > 内置现代化暗色/亮色主题、多选预览、批量下载、历史记忆，专为粉丝设计。
 
 ---
+
+## 2.3 更新
+
+2.3.1 修复 IG 多图预览：预览并发改为 2，并复用每个工作线程的连接。普通重试仍失败时，只使用一个后台浏览器连接补载缺失预览；后台补载失败才沿用一次可见轮播补救。成功图片、原地址、顺序与勾选继续保留。101 项回归测试及 20 图本地故障恢复流程通过，未将本地模拟结果宣称为用户线上故障帖复测。
+
+2.3.0 在原媒体页加入 Threads，支持 threads.com / threads.net 完整帖、`/t/`、`/share/` 及分享文字中的单一链接。按帖子编号提取原生图片、MP4 视频和混合轮播，不混入引用帖、回复、推荐媒体或外部卡片。沿用多选、预览、下载、复制链接和历史，卡片先显示，预览逐张加载；失败项保留，打开 Threads 历史重新解析签名地址。
+
+Threads 解析、预览和下载沿用代理与原始请求来源，只读取现有 Threads 域 Cookie，不修改原文件或把凭据写入缓存；不新增第三方解析服务，正常提取不弹浏览器。私密、删除、必须登录或平台限制的帖子可能无法读取。
+
+97 项回归测试、本地混合帖的真实 HTTP 下载及深浅色界面复核通过。3 个公开 Threads 视频帖在线解析和 MP4 文件头验证成功，一个真实封面由产品预览函数成功解码。图片和混合帖的完整流程使用本地样本验证。
 
 ## 2.2 更新
 
@@ -50,7 +60,7 @@ TikTok 解析、封面和下载沿用设置中的代理，读取已有 cookies.j
 新版采用品牌色卡片布局、文字侧边栏与顶部平台切换，并使用官方四色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
 
-- [2.2.4 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.2.4)
+- [2.3.1 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.3.1)
 - [完整更新日志](CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
@@ -79,8 +89,9 @@ TikTok 解析、封面和下载沿用设置中的代理，读取已有 cookies.j
 
 ## ✨ 功能亮点
 
-### 📸 Instagram / X / TikTok 媒体提取
+### 📸 Instagram / Threads / X / TikTok 媒体提取
 - 精准抓取帖子图片、视频、轮播图与 Reels
+- Threads：公开图片、视频、混合帖和分享链接，按帖子编号排除引用、回复和推荐媒体
 - 自动过滤推荐帖、头像等干扰项
 - 卡片网格预览，单击选择/取消，右键全尺寸预览
 - 全选、复制链接、批量并行下载
@@ -110,7 +121,7 @@ TikTok 解析、封面和下载沿用设置中的代理，读取已有 cookies.j
 
 ### 新功能用法
 
-在「Instagram / X / TikTok」页粘贴帖子完整链接或 TikTok 分享短链接，点击「提取」，再选择并下载媒体。
+在「Instagram / Threads / X / TikTok」页粘贴帖子完整链接或 Threads、TikTok 分享短链接，点击「提取」，再选择并下载媒体。
 
 在视频页批量输入区每行粘贴一个视频链接，选择目录、画质和格式后点击「批量下载」。可通过「同时下载」调整并发数，在任务队列查看和操作每个视频。单个链接仍可先解析标题和可用画质，再点击「下载」。
 

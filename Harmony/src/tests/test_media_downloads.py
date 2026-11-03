@@ -104,7 +104,7 @@ class MediaDownloadRegression(unittest.TestCase):
         context=SimpleNamespace(_closing=False,_thumbnail_generation=7,
             _apply_instagram_preview=MagicMock(),_finish_instagram_previews=MagicMock(),_schedule_media_callback=MagicMock())
         url='https://scontent.cdninstagram.com/photo.jpg'
-        with patch.object(main.requests,'get',side_effect=[main.requests.ConnectionError('reset'),request]) as get,patch.object(main.time,'sleep'):
+        with patch.object(main.requests.Session,'get',side_effect=[main.requests.ConnectionError('reset'),request]) as get,patch.object(main.time,'sleep'):
             main.InstagramDownloaderApp._load_instagram_previews(context,[(url,'image','')],7,'http://127.0.0.1:9876')
             self.assertEqual(get.call_count,2)
             args=context._schedule_media_callback.call_args_list[0].args

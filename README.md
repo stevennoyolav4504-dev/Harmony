@@ -1,6 +1,6 @@
 # Harmony 2.0 — Instagram & YouTube 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.2.4-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.3.1-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](Harmony/LICENSE)
 
@@ -13,6 +13,14 @@
 
 新版采用浅紫色卡片布局、文字侧边栏与顶部平台切换，并换用三色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
+
+2.3.1 修复 IG 多图预览：预览并发改为 2，并复用每个工作线程的连接。普通重试仍失败时，只使用一个后台浏览器连接补载缺失预览；后台补载失败才沿用一次可见轮播补救。成功图片、原地址、顺序与勾选继续保留。101 项回归测试及 20 图本地故障恢复流程通过，未将本地模拟结果宣称为用户线上故障帖复测。
+
+2.3.0 在原媒体页加入 Threads，支持 threads.com / threads.net 完整帖、`/t/`、`/share/` 及分享文字中的单一链接。按帖子编号提取原生图片、MP4 视频和混合轮播，不混入引用帖、回复、推荐媒体或外部卡片。沿用多选、预览、下载、复制链接和历史，卡片先显示，预览逐张加载；失败项保留，打开 Threads 历史重新解析签名地址。
+
+Threads 解析、预览和下载沿用代理与原始请求来源，只读取现有 Threads 域 Cookie，不修改原文件或把凭据写入缓存；不新增第三方解析服务，正常提取不弹浏览器。私密、删除、必须登录或平台限制的帖子可能无法读取。
+
+97 项回归测试、本地混合帖的真实 HTTP 下载及深浅色界面复核通过。3 个公开 Threads 视频帖在线解析和 MP4 文件头验证成功，一个真实封面由产品预览函数成功解码。图片和混合帖的完整流程使用本地样本验证。
 
 2.2.4 保留正常后台提取；IG 预览重试后仍有失败项时，自动打开有头浏览器，跳过快速 JSON 数据，按旧版逐页轮播重新提取一次。使用新地址补救失败项并更新下载地址，保留已成功的图片、原列表与勾选。正在下载时会等待完成再补救，单次提取最多自动启动一次，不循环弹窗；打开有失败预览的 IG 历史记录也会针对该帖补救。
 
@@ -40,7 +48,7 @@
 
 2.0.2 修复任务栏与标题栏图标模糊的问题：按当前 DPI 分别加载大小图标，并设置独立的 Windows 应用 ID；2.0.1 修复链接输入框占位提示遮挡编辑区的问题。
 
-- [2.2.4 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.2.4)
+- [2.3.1 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.3.1)
 - [完整更新日志](Harmony/CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
@@ -95,7 +103,7 @@
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.2.4-Windows-x64.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.3.1-Windows-x64.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 
