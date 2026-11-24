@@ -311,6 +311,87 @@ class UIRegression(unittest.TestCase):
             history.assert_called_once_with(resolved.url,1)
         a.running=False;a.clear_all()
 
+    def test_xiaohongshu_reuses_media_selection_download_and_history(self):
+        from media_sources import parse_post_link
+        a = self.app
+        a.running = False
+        a.clear_all()
+        a._switch_platform('Instagram')
+        draft = '分享笔记 https://xhslink.com/o/AbcDef123 复制后打开小红书'
+        note = parse_post_link('https://www.xiaohongshu.com/explore/6a9d0eb2000000002a024480?xsec_token=sample')
+        media = [('https://sns-webpic-qc.xhscdn.com/a.jpg', 'image', '')]
+        extractor = a.xiaohongshu_extractor
+        proxy = 'http://127.0.0.1:9876'
+        try:
+            a.url_var.set(draft)
+            with patch.object(main.threading, 'Thread'):
+                a.fetch_images()
+            self.assertEqual(a.current_shortcode, 'xhs_short_AbcDef123')
+            with patch.object(extractor, 'resolved_link', note), patch.object(extractor, 'proxy', proxy), \
+                 patch.object(extractor, 'extract', return_value=media) as extract, \
+                 patch.object(a.ig_extractor, 'extract') as instagram, patch.object(a, '_add_to_history') as history, \
+                 patch.object(main.threading, 'Thread') as preview:
+                a._fetch_worker(draft, proxy)
+                a.update()
+                extract.assert_called_once()
+                instagram.assert_not_called()
+                history.assert_called_once_with(note.url, 1)
+                self.assertEqual(a.current_shortcode, note.cache_key)
+                self.assertEqual(a.url_var.get(), note.url)
+                self.assertEqual(len(a.card_buttons), 1)
+                self.assertEqual(preview.call_args.kwargs['args'][2:], (proxy, extractor.request_headers))
+                with patch.object(a, '_save_cache') as cache, patch.object(main.threading, 'Thread') as recovery:
+                    a._finish_instagram_previews(a._thumbnail_generation)
+                    cache.assert_not_called()
+                    recovery.assert_not_called()
+                with patch.object(main.threading, 'Thread') as download_worker:
+                    a.download_all()
+                    self.assertEqual(download_worker.call_args.kwargs['args'][2], proxy)
+            with patch.object(main, 'download_media_parallel', return_value=(1, 1)) as download:
+                a._download_worker(media, a.dir_var.get(), proxy)
+                a.update()
+                self.assertEqual(download.call_args.args[2], note.cache_key)
+                self.assertEqual(download.call_args.args[4:], (extractor.request_headers, proxy))
+            with patch.object(a, 'fetch_images') as fetch, patch.object(a, '_load_from_cache') as cache:
+                a._on_history_click(note.url)
+                fetch.assert_called_once()
+                cache.assert_not_called()
+            self.assertIn('小红书', a.platform_buttons['Instagram'].cget('text'))
+        finally:
+            a.running = False
+            a.clear_all()
+
+    def test_xiaohongshu_preview_cards_keep_original_sizes_after_thumbnail_load(self):
+        from media_sources import parse_post_link
+        a = self.app
+        a.running = False
+        a.clear_all()
+        a._switch_platform('Instagram')
+        note = parse_post_link('https://www.xiaohongshu.com/explore/6a9d0eb2000000002a024480')
+        origin = 'https://ci.xiaohongshu.com/oss-sg/notes_pre_post/'
+        known = origin + 'a' * 40
+        unknown = origin + 'b' * 40
+        display = 'https://sns-webpic-qc.xhscdn.com/display.jpg'
+        media = [(known, 'image', display), (unknown, 'image', display), (display, 'image', display)]
+        thumb = Image.new('RGB', (1080, 1440), 'pink')
+        try:
+            with patch.object(a.xiaohongshu_extractor, '_original_sizes', {known: (4284, 5712)}), \
+                 patch.object(a, '_add_to_history'), patch.object(main.threading, 'Thread'):
+                a._fetch_complete(media, None, note)
+            self.assertEqual(a.card_buttons[0]['res_str'], '原图 4284 × 5712')
+            generation = a._thumbnail_generation
+            labels = ('原图 4284 × 5712', '原图尺寸未知', '1080 × 1440')
+            for index, (url, _, _) in enumerate(media):
+                a._apply_instagram_preview(index, (url, 1080, 1440, thumb, 'image'), generation, index + 1, 3)
+                self.assertIs(a.card_buttons[index]['raw_pil'], thumb)
+                self.assertEqual(a.card_buttons[index]['res_str'], labels[index])
+            a._render_thumbnails(is_relayout=True)
+            self.assertEqual(tuple(card['res_str'] for card in a.card_buttons), labels)
+            self.assertEqual(a.image_data[0][:3], (known, 4284, 5712))
+        finally:
+            a.running = False
+            a.clear_all()
+
     def test_action_buttons_restore_brand_colors_after_disabled_state(self):
         a=self.app
         for button,fill in [(a.fetch_btn,'accent'),(a.yt_download_btn,'download')]:
@@ -328,17 +409,104 @@ class UIRegression(unittest.TestCase):
         called=Mock()
         try:
             button.configure(command=called,state='normal',text='提取')
-            button._canvas.event_generate('<Enter>')
-            button._canvas.event_generate('<ButtonRelease-1>',x=button.winfo_width()//2,y=button.winfo_height()//2)
+            a.update()
+            canvas=button.scene.canvas
+            x=round((button.rect[0]+button.rect[2]/2)*button.scene.scale-canvas.canvasx(0))
+            y=round((button.rect[1]+button.rect[3]/2)*button.scene.scale-canvas.canvasy(0))
+            canvas.event_generate('<Motion>',x=x,y=y)
+            canvas.event_generate('<ButtonRelease-1>',x=x,y=y)
             a.update()
             called.assert_called_once()
             button.configure(state='disabled')
-            button._canvas.event_generate('<Enter>')
-            button._canvas.event_generate('<ButtonRelease-1>',x=5,y=5)
+            a.update()
+            canvas.event_generate('<Motion>',x=x,y=y)
+            canvas.event_generate('<ButtonRelease-1>',x=x,y=y)
             a.update()
             called.assert_called_once()
         finally:
             button.configure(command=previous,state='normal')
+
+    def test_shared_page_button_hit_area_includes_padding(self):
+        a=self.app;a._switch_platform('Instagram');a.pages['Instagram'].canvas.yview_moveto(0)
+        button=a.fetch_btn;previous=button.cget('command');called=Mock()
+        try:
+            button.configure(command=called,state='normal');a.update()
+            canvas=button.scene.canvas
+            for dx,dy in ((8,8),(button.rect[2]-8,button.rect[3]-8),(button.rect[2]/2,button.rect[3]/2)):
+                x=round((button.rect[0]+dx)*button.scene.scale-canvas.canvasx(0))
+                y=round((button.rect[1]+dy)*button.scene.scale-canvas.canvasy(0))
+                canvas.event_generate('<ButtonRelease-1>',x=x,y=y);a.update()
+            self.assertEqual(called.call_count,3)
+            button.configure(state='disabled');a.update()
+            canvas.event_generate('<ButtonRelease-1>',x=x,y=y);a.update()
+            self.assertEqual(called.call_count,3)
+        finally:button.configure(command=previous,state='normal')
+
+    def test_media_actions_follow_the_scrolled_canvas(self):
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram')
+        image=Image.new('RGB',(30,40),'pink')
+        a.image_data=[(f'https://example.invalid/{i}.jpg',30,40,image,'image') for i in range(20)]
+        try:
+            a._render_thumbnails();a.update()
+            canvas=a.pages['Instagram'].canvas;canvas.yview_moveto(.5);a.update()
+            visible=[(i,row['btn']) for i,row in enumerate(a.card_buttons) if 5<(row['btn'].rect[1]+row['btn'].rect[3]/2)*row['btn'].scene.scale-canvas.canvasy(0)<canvas.winfo_height()-5]
+            self.assertTrue(visible);index,button=visible[0]
+            x=round((button.rect[0]+button.rect[2]/2)*button.scene.scale-canvas.canvasx(0))
+            y=round((button.rect[1]+button.rect[3]/2)*button.scene.scale-canvas.canvasy(0))
+            with patch.object(a,'_show_preview') as preview:
+                canvas.event_generate('<Button-3>',x=x,y=y);a.update()
+                preview.assert_called_once_with(index)
+            canvas.event_generate('<ButtonRelease-1>',x=x,y=y);a.update()
+            self.assertNotIn(index,a.selected_indices)
+        finally:a.clear_all();a.pages['Instagram'].canvas.yview_moveto(0);a.update()
+
+    def test_main_page_resize_keeps_native_control_count_bounded(self):
+        import tkinter as tk
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram');a.update()
+        def native_widgets(widget):
+            yield widget
+            for child in tk.Misc.winfo_children(widget):yield from native_widgets(child)
+        before={str(w) for w in native_widgets(a) if w.winfo_viewable()}
+        try:
+            self.assertLess(len(before),45)
+            for size in ('1120x740','1280x900','1160x800'):
+                a.geometry(size);a.update()
+                self.assertEqual(before,{str(w) for w in native_widgets(a) if w.winfo_viewable()})
+        finally:a.geometry('1280x940');a.update()
+
+    def test_media_created_on_hidden_page_is_laid_out_when_shown(self):
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('YouTube');a.update()
+        try:
+            a.image_data=[('https://example.invalid/hidden.jpg',30,40,Image.new('RGB',(30,40),'pink'),'image')]
+            a._render_thumbnails();a.update()
+            a._switch_platform('Instagram');a.update()
+            button=a.card_buttons[0]['btn']
+            self.assertTrue(button.winfo_ismapped())
+            self.assertEqual(button.winfo_width(),a.card_w)
+            self.assertGreater(button.rect[1],a.preview_grid.rect[1])
+        finally:a.clear_all();a.update()
+
+    @unittest.skipUnless(sys.platform=='win32','Windows native retained surfaces')
+    def test_native_surface_matches_viewport_and_dispatches_clicks_outside_wndproc(self):
+        import ctypes
+        import time
+        from ctypes import wintypes as w
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram');a.pages['Instagram'].canvas.yview_moveto(0);a.update()
+        button=a.fetch_btn;canvas=button.scene.canvas;old=button.cget('command');called=Mock()
+        user=ctypes.windll.user32
+        user.GetClientRect.argtypes=[w.HWND,ctypes.POINTER(w.RECT)]
+        user.SendMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM]
+        rect=w.RECT();user.GetClientRect(canvas.surface,ctypes.byref(rect))
+        self.assertEqual((rect.right,rect.bottom),(canvas.winfo_width(),canvas.winfo_height()))
+        try:
+            button.configure(command=called,state='normal');a.update()
+            x=round((button.rect[0]+10)*button.scene.scale)
+            y=round((button.rect[1]+10)*button.scene.scale-canvas.canvasy(0))
+            user.SendMessageW(canvas.surface,0x202,0,x|(y<<16))
+            called.assert_not_called()
+            time.sleep(.012);a.update();called.assert_called_once()
+            self.assertFalse(canvas.errors)
+        finally:button.configure(command=old,state='normal')
 
     def test_parse_validation_and_stale_result(self):
         a=self.app
@@ -376,10 +544,89 @@ class UIRegression(unittest.TestCase):
                     self.assertLessEqual(entry.winfo_rootx()+entry.winfo_width(),a.winfo_rootx()+a.winfo_width())
         a.geometry('1280x940');a._switch_platform('Instagram');a.update()
 
+    def test_media_reflow_reuses_controls_and_images_without_resampling(self):
+        a=self.app;a.running=False;a.clear_all();a._switch_platform('Instagram')
+        a.image_data=[(f'https://example.invalid/{i}.jpg',200,250,Image.new('RGB',(200,250),'pink'),'image') for i in range(20)]
+        with patch.object(a,'_calc_grid',return_value=(4,120,150)):
+            a._render_thumbnails()
+        a.toggle_card_selection(0)
+        buttons=[item['btn'] for item in a.card_buttons]
+        images=[button.cget('image') for button in buttons]
+        selected=set(a.selected_indices)
+        with patch.object(a,'_calc_grid',return_value=(5,120,150)),patch.object(main,'create_card_thumbnail') as scale:
+            a._relayout_thumbnails();scale.assert_not_called()
+        self.assertEqual(buttons,[item['btn'] for item in a.card_buttons])
+        self.assertEqual(images,[button.cget('image') for button in buttons])
+        self.assertEqual(a.selected_indices,selected)
+        for index,button in enumerate(buttons):
+            self.assertEqual((int(button.grid_info()['row']),int(button.grid_info()['column'])),(index//5,index%5))
+        self.assertIsNone(a._resize_after_id)
+        a.clear_all()
+
+    def test_media_reflow_resizes_existing_cards_when_card_dimensions_change(self):
+        a=self.app;a.running=False;a.clear_all()
+        a.image_data=[(f'https://example.invalid/{i}.jpg',200,250,Image.new('RGB',(200,250),'pink'),'image') for i in range(3)]
+        with patch.object(a,'_calc_grid',return_value=(3,120,150)):a._render_thumbnails()
+        buttons=[item['btn'] for item in a.card_buttons]
+        images=[button.cget('image') for button in buttons]
+        with patch.object(a,'_calc_grid',return_value=(2,90,112)):a._relayout_thumbnails()
+        self.assertEqual(buttons,[item['btn'] for item in a.card_buttons])
+        self.assertTrue(all(button.cget('width')==90 for button in buttons))
+        self.assertTrue(all(button.cget('image') is not image for button,image in zip(buttons,images)))
+        self.assertEqual(a.selected_indices,{0,1,2})
+        a.clear_all()
+
+    def test_layout_containers_keep_colors_and_restore_canvas_for_visible_panels(self):
+        from harmony_surfaces import LayoutFrame
+        frame=LayoutFrame(self.app,fg_color='transparent',width=80,height=40)
+        frame.pack();self.app.update()
+        try:
+            self.assertEqual(frame._canvas.winfo_manager(),'')
+            self.assertEqual(frame.tk.call(frame._w,'cget','-background'),frame._apply_appearance_mode(frame._bg_color))
+            frame.configure(fg_color='#FFEEEE');self.app.update()
+            self.assertEqual(frame._canvas.winfo_manager(),'place')
+            frame.configure(fg_color='transparent');self.app.update()
+            self.assertEqual(frame._canvas.winfo_manager(),'')
+        finally:frame.destroy()
+
+    def test_header_keeps_canvas_text_items_while_width_changes(self):
+        from harmony_scene import Header as HeroHeader
+        a=self.app;a.clear_all();a._switch_platform('Instagram');a.geometry('1200x850');a.update()
+        header=next(widget for widget in a.pages['Instagram'].winfo_children() if isinstance(widget,HeroHeader))
+        items=tuple(header._items.values())+tuple(header.right._items.values())
+        width=header._paint_key[0]
+        right=header._canvas.coords(header.right._items['text'])[0]
+        a.geometry('1280x850');a.update()
+        self.assertEqual(tuple(header._items.values())+tuple(header.right._items.values()),items)
+        self.assertAlmostEqual(header._canvas.coords(header.right._items['text'])[0]-right,header._paint_key[0]-width)
+        a.geometry('1280x940');a.update()
+
+    def test_background_coalesces_pending_sizes_and_cancels_on_destroy(self):
+        from harmony_surfaces import PageWash
+        from types import SimpleNamespace
+        import harmony_surfaces
+        background=PageWash(self.app);background.unbind('<Configure>')
+        try:
+            with patch.object(harmony_surfaces,'wash',wraps=harmony_surfaces.wash) as paint:
+                for width in (40,60,80):background._paint(SimpleNamespace(width=width,height=60))
+                self.app.update_idletasks()
+                paint.assert_called_once_with(80,60,False)
+                self.assertEqual(background._paint_key,(80,60,False))
+                background._paint(SimpleNamespace(width=90,height=60))
+                background._paint(SimpleNamespace(width=80,height=60))
+                self.app.update_idletasks()
+                paint.assert_called_once()
+                background._paint(SimpleNamespace(width=90,height=60))
+                self.assertIsNotNone(background._paint_pending)
+                background.destroy();self.app.update_idletasks()
+                paint.assert_called_once()
+        finally:
+            if background.winfo_exists():background.destroy()
+
     @unittest.skipUnless(sys.platform=='win32','Windows minimize/restore')
     def test_restore_preserves_widgets_inputs_and_cached_surfaces(self):
         a=self.app
-        from harmony_surfaces import HeroHeader
+        from harmony_scene import Header as HeroHeader
         a.geometry('1200x740');a.update()
         a.url_var.set('https://www.instagram.com/p/restore/')
         a.yt_url_var.set('https://www.youtube.com/watch?v=restore')

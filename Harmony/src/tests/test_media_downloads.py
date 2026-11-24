@@ -15,6 +15,7 @@ import threading
 
 
 class MediaDownloadRegression(unittest.TestCase):
+    XHS_ORIGINAL = 'https://ci.xiaohongshu.com/notes_pre_post/1040exampleaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
     @staticmethod
     def response(data=b'complete', mime='image/jpeg'):
         response=MagicMock();response.headers={'Content-Type':mime}
@@ -128,6 +129,47 @@ class MediaDownloadRegression(unittest.TestCase):
             self.assertFalse(list(Path(folder).glob('*.part')))
             self.assertEqual(get.call_args.kwargs['headers'], context)
             self.assertEqual(get.call_args.kwargs['proxies'], {'http': 'http://127.0.0.1:9876', 'https': 'http://127.0.0.1:9876'})
+
+    def test_xiaohongshu_preview_uses_small_image_with_original_identity(self):
+        image = BytesIO()
+        Image.new('RGB', (12, 16), 'pink').save(image, format='PNG')
+        request, response = self.response()
+        response.content = image.getvalue()
+        preview = 'https://sns-webpic-qc.xhscdn.com/display!small'
+        with patch.object(main.requests, 'get', return_value=request) as get:
+            item = main._read_instagram_preview((self.XHS_ORIGINAL, 'image', preview), None,
+                                                lambda: False, 'test')
+        self.assertEqual(get.call_args.args[0], preview)
+        self.assertEqual(item[:3], (self.XHS_ORIGINAL, 12, 16))
+
+    def test_xiaohongshu_saves_large_original_and_webp_byte_for_byte(self):
+        png = BytesIO()
+        Image.new('RGB', (2200, 1800), 'pink').save(png, format='PNG', compress_level=0)
+        self.assertGreater(len(png.getvalue()), 11 * 1024 * 1024)
+        webp = BytesIO()
+        Image.new('RGB', (12, 16), 'pink').save(webp, format='WEBP')
+        for payload, extension in ((png.getvalue(), '.png'), (webp.getvalue(), '.webp')):
+            with self.subTest(extension=extension), tempfile.TemporaryDirectory() as folder:
+                request, response = self.response(mime='application/octet-stream')
+                response.iter_content.side_effect = lambda chunk_size: (
+                    payload[offset:offset + chunk_size] for offset in range(0, len(payload), chunk_size))
+                with patch.object(main.requests, 'get', return_value=request) as get:
+                    result = main.download_media_parallel([(self.XHS_ORIGINAL, 'image', '')], folder, 'xhs_photo')
+                self.assertEqual(result, (1, 1))
+                output = Path(folder) / ('xhs_photo_1' + extension)
+                self.assertEqual(output.read_bytes(), payload)
+                self.assertEqual(list(Path(folder).iterdir()), [output])
+                self.assertTrue(get.call_args.kwargs['stream'])
+
+    def test_xiaohongshu_distinguishes_heic_from_avif_and_rejects_nonimage_bodies(self):
+        for brand, extension in ((b'heic', '.heic'), (b'avif', '.avif')):
+            data = b'\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00mif1' + brand
+            self.assertEqual(main._original_image_extension(data), extension)
+        request, _ = self.response(b'{"error":"object is unavailable"}', 'application/json')
+        with tempfile.TemporaryDirectory() as folder, patch.object(main.requests, 'get', return_value=request):
+            result = main.download_media_parallel([(self.XHS_ORIGINAL, 'image', '')], folder, 'xhs_photo')
+            self.assertEqual(result, (0, 1))
+            self.assertFalse(list(Path(folder).iterdir()))
 
     def test_x_image_format_and_headers_are_preserved(self):
         response=MagicMock();response.iter_content.return_value=iter([b'newpng'])

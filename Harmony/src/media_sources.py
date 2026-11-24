@@ -9,6 +9,12 @@ import tempfile
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 
+XHS_NOTE_HOSTS = frozenset(('xiaohongshu.com', 'www.xiaohongshu.com',
+                           'rednote.com', 'www.rednote.com'))
+XHS_SHARE_HOSTS = frozenset(('xhslink.com', 'www.xhslink.com', 'xhslink.cn', 'www.xhslink.cn'))
+SUPPORTED_POST_LINKS = '请粘贴有效的 Instagram、Threads、X、TikTok 或小红书链接'
+
+
 @dataclass(frozen=True)
 class PostLink:
     platform: str
@@ -18,24 +24,40 @@ class PostLink:
 
     @property
     def cache_key(self):
-        prefix = {'X': 'x_', 'TikTok': 'tiktok_', 'Threads': 'threads_'}.get(self.platform, '')
+        prefix = {'X': 'x_', 'TikTok': 'tiktok_', 'Threads': 'threads_', 'Xiaohongshu': 'xhs_'}.get(self.platform, '')
         return prefix + self.post_id
 
 
 def parse_post_link(url):
     # Mobile shares may include a caption around the actual URL.
     raw = url.strip()
-    if not raw.startswith(('http://', 'https://')):
+    if not raw.startswith(('http://', 'https://')) or any(character.isspace() for character in raw):
         urls = re.findall(r'https?://[^\s<>"\u4e00-\u9fff]+', raw)
         if len(urls) == 1:
             candidate = urls[0].rstrip('.,;!?，。；！？”）)]}')
-            if (urlsplit(candidate).hostname or '').lower() in ('tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
-                                                               'threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'):
+            share_hosts = {'tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
+                           'threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'}
+            if urlsplit(candidate).hostname in share_hosts | XHS_NOTE_HOSTS | XHS_SHARE_HOSTS:
                 url = candidate
     parts = urlsplit(url.strip())
     host = (parts.hostname or '').lower()
     if parts.scheme not in ('http', 'https') or parts.username or parts.password:
-        raise ValueError('请粘贴有效的 Instagram、Threads、X 或 TikTok 帖子链接')
+        raise ValueError(SUPPORTED_POST_LINKS)
+    if host in XHS_NOTE_HOSTS | XHS_SHARE_HOSTS:
+        if parts.port not in (None, 80, 443):
+            raise ValueError('小红书链接端口无效')
+        if host in XHS_NOTE_HOSTS:
+            match = re.fullmatch(r'/(?:explore|discovery/item|user/profile/[\da-fA-F]{24})/([\da-fA-F]{24})/?', parts.path)
+            if match:
+                params = parse_qs(parts.query)
+                query = urlencode({key: params[key][0] for key in ('xsec_token', 'xsec_source') if key in params})
+                return PostLink('Xiaohongshu', match[1].lower(), urlunsplit(('https', host, parts.path, query, '')))
+        else:
+            match = re.fullmatch(r'/(?:[a-zA-Z]/)?([a-zA-Z0-9]{4,64})/?', parts.path)
+            if match:
+                return PostLink('Xiaohongshu', 'short_' + match[1],
+                                urlunsplit(('https', host, parts.path, parts.query, '')), True)
+        raise ValueError('请粘贴小红书笔记或分享短链接')
     if host in ('threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'):
         if parts.port not in (None, 80, 443): raise ValueError('Threads 链接端口无效')
         match = re.fullmatch(r'/@([A-Za-z0-9_.]+)/post/([A-Za-z0-9_-]+)/?', parts.path)
@@ -69,7 +91,7 @@ def parse_post_link(url):
         match = None
     if match:
         return PostLink('TikTok', f'short_{match[1]}', urlunsplit(('https', host, parts.path, parts.query, '')), True)
-    raise ValueError('请粘贴 Instagram、Threads、X 或 TikTok 帖子链接（支持分享短链接）')
+    raise ValueError(SUPPORTED_POST_LINKS + '（支持分享短链接）')
 
 
 def _http_url(url):

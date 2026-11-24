@@ -41,6 +41,9 @@ class InstagramFastPathRegression(unittest.TestCase):
                 self.assertIn('RuntimeError: backend failure',logged.output[0])
                 context.after.assert_called_once_with(0,context._fetch_complete,[],'backend failure')
                 self.assertEqual(extractor.close.call_count,int(platform=='Instagram'))
+                if platform=='Instagram':
+                    cancelled=extractor.extract.call_args.kwargs['cancelled']
+                    self.assertFalse(cancelled());context._closing=True;self.assertTrue(cancelled())
 
     def test_extraction_is_headless_with_bundled_chromium_and_keeps_proxy(self):
         engine=Mock();browser=engine.chromium.launch.return_value

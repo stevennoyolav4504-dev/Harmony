@@ -50,6 +50,8 @@ class PageWash(tk.Canvas):
         super().__init__(parent,highlightthickness=0,bd=0,bg="#201D23" if dark else "#FFF2F8")
         self.dark=dark
         self._paint_key=None
+        self._paint_pending=None
+        self._paint_size=None
         self._image_item=self.create_image(0,0,anchor="nw")
         self.place(x=0,y=0,relwidth=1,relheight=1)
         self.tk.call("lower",self._w)
@@ -57,12 +59,48 @@ class PageWash(tk.Canvas):
 
     def _paint(self,event):
         key=(event.width,event.height,self.dark)
-        if key==self._paint_key or min(event.width,event.height)<=1:return
+        if min(event.width,event.height)<=1:return
+        self._paint_size=key
+        if key==self._paint_key:return
+        if self._paint_pending is None:
+            self._paint_pending=self.after_idle(self._flush_paint)
+
+    def _flush_paint(self):
+        self._paint_pending=None
+        key=self._paint_size
+        if key is None or key==self._paint_key:return
         # Retain both the canvas item and old photo until its replacement is ready.
         photo=ImageTk.PhotoImage(wash(*key),master=self)
         self.itemconfigure(self._image_item,image=photo)
         self._photo=photo
         self._paint_key=key
+
+    def destroy(self):
+        if self._paint_pending is not None:
+            self.after_cancel(self._paint_pending)
+            self._paint_pending=None
+        super().destroy()
+
+
+class LayoutFrame(ctk.CTkFrame):
+    """Transparent layout containers need no second native canvas to repaint."""
+    def __init__(self,*args,**kwargs):
+        self._layout_canvas_hidden=False
+        super().__init__(*args,**kwargs)
+
+    def _draw(self,no_color_updates=False):
+        if (self._fg_color=='transparent' and self._border_width==0
+                and self._background_corner_colors is None):
+            if not self._layout_canvas_hidden:
+                self._canvas.place_forget()
+                self._layout_canvas_hidden=True
+            if not no_color_updates:
+                tk.Frame.configure(self,bg=self._apply_appearance_mode(self._bg_color))
+            return
+        if self._layout_canvas_hidden:
+            self._canvas.place(x=0,y=0,relwidth=1,relheight=1)
+            self._layout_canvas_hidden=False
+        super()._draw(no_color_updates)
 
 
 class HeroHeader(ctk.CTkFrame):
@@ -93,8 +131,15 @@ class HeroHeader(ctk.CTkFrame):
         art=_scaled_hero(self.platform,aw,ah)
         background.alpha_composite(art,(w-round(410*s),round(-8*s)))
         photo=ImageTk.PhotoImage(background,master=self)
+        if self._paint_key is not None and key[2:]==self._paint_key[2:]:
+            canvas.itemconfigure('hero_background',image=photo)
+            canvas.move('hero_right_text',w-self._paint_key[0],0)
+            self._photo=photo
+            self._paint_key=key
+            canvas.tag_raise('hero')
+            return
         canvas.delete("hero")
-        canvas.create_image(0,0,image=photo,anchor="nw",tags="hero")
+        canvas.create_image(0,0,image=photo,anchor="nw",tags=("hero","hero_background"))
         self._photo=photo
         def text(x,y,value,size,color,bold=False,font=None):
             return canvas.create_text(x*s,y*s,text=value,anchor="nw",fill=color,
@@ -109,8 +154,9 @@ class HeroHeader(ctk.CTkFrame):
         text(11,72,"Instagram · Threads · X · TikTok 媒体提取" if ig else "粘贴 YouTube / B站 等链接，支持多个视频同时下载",17,self.colors["text_secondary"])
         text(11,112,"Save what inspires you  ✦" if ig else "Videos for a brighter tomorrow  ✦",18,
              "#EE81B5" if not dark else "#F0A7CB",font="Segoe Print")
-        text(w/s-103,56,"Collect\n  Inspire\n    Anywhere" if ig else "Watch\n  Download\n    Keep Forever",14,
+        right=text(w/s-103,56,"Collect\n  Inspire\n    Anywhere" if ig else "Watch\n  Download\n    Keep Forever",14,
              "#EF89BD" if not dark else "#EAA8C9",font="Segoe Print")
+        canvas.addtag_withtag('hero_right_text',right)
         self._paint_key=key
 
 

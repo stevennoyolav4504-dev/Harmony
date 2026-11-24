@@ -26,7 +26,7 @@ import tkinter as tk
 import requests
 import customtkinter as ctk
 from PIL import Image, ImageTk, ImageDraw, ImageFont
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeoutError
 from playwright_stealth import Stealth
 from logging.handlers import RotatingFileHandler
 from version import __version__
@@ -35,6 +35,7 @@ from windows_rendering import install_restore_buffer
 from harmony_theme import COLOR_SCHEMES, select_font
 from media_sources import XMediaExtractor, TikTokMediaExtractor, parse_post_link
 from threads_media import ThreadsMediaExtractor
+from xiaohongshu_media import XiaohongshuMediaExtractor, is_original_image_url
 from instagram_media import read_complete_instagram_post, instagram_media_identity, map_instagram_recovery, _media_url
 from video_tasks import VideoTaskQueue, VideoOptions, TaskCancelled, parse_video_links, run_media_process, validate_clip
 
@@ -232,8 +233,47 @@ class InstagramExtractor:
         Stealth().apply_stealth_sync(page)
         return page
 
+    def _navigate_post(self, page, url, progress_callback=None, cancelled=None):
+        """A dropped navigation is not an empty or deleted Instagram post."""
+        transient = ('ERR_CONNECTION_CLOSED', 'ERR_CONNECTION_RESET', 'ERR_CONNECTION_ABORTED',
+                     'ERR_TIMED_OUT', 'ERR_EMPTY_RESPONSE', 'ERR_HTTP2_PROTOCOL_ERROR',
+                     'ERR_QUIC_PROTOCOL_ERROR', 'ERR_NETWORK_CHANGED')
+        for attempt in range(3):
+            if cancelled and cancelled(): raise RuntimeError('提取已取消')
+            try:
+                page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                _check_instagram_access(page.url)
+                return
+            except Exception as error:
+                message = str(error)
+                code = next((code for code in transient if code in message), None)
+                if isinstance(error, BrowserTimeoutError): code = code or 'NAVIGATION_TIMEOUT'
+                if code:
+                    if cancelled and cancelled(): raise RuntimeError('提取已取消') from error
+                    # A timeout may already have reached a login/checkpoint page.
+                    _check_instagram_access(page.url)
+                    if attempt == 2:
+                        raise RuntimeError('Instagram 页面连接多次中断或超时，请稍后重试；若仍失败，请检查设置中的网络代理和系统代理') from error
+                    logger.warning('IG 页面连接中断（%s），正在重连（%d/3）', code, attempt + 2)
+                    if progress_callback: progress_callback(f'连接暂时中断，正在重连 Instagram（{attempt+2}/3）…')
+                    page.wait_for_timeout(600 * 2 ** attempt)
+                    continue
+                if 'ERR_CERT_' in message or 'ERR_SSL_' in message:
+                    raise RuntimeError('Instagram 安全连接失败，请检查系统时间、代理证书或网络设置') from error
+                if any(code in message for code in ('ERR_PROXY_CONNECTION_FAILED', 'ERR_TUNNEL_CONNECTION_FAILED',
+                                                    'ERR_NO_SUPPORTED_PROXIES', 'ERR_SOCKS_CONNECTION_FAILED')):
+                    raise RuntimeError('Instagram 代理连接失败，请检查设置中的代理地址及代理服务是否运行') from error
+                if any(code in message for code in ('ERR_NAME_NOT_RESOLVED', 'ERR_INTERNET_DISCONNECTED',
+                                                    'ERR_ADDRESS_UNREACHABLE', 'ERR_CONNECTION_REFUSED')):
+                    raise RuntimeError('无法连接 Instagram，请检查网络、DNS 或系统代理后重试') from error
+                raise
+
     def extract(self, url: str, progress_callback=None, *, legacy=False, cancelled=None) -> list:
         """提取 Instagram 帖子中的图片与视频，返回 [(url, type, thumb_url), ...]"""
+        link = parse_post_link(url)
+        if link.platform != 'Instagram': raise ValueError('需要 Instagram 帖子链接')
+        is_reel = urlsplit(url).path.startswith(('/reel/', '/reels/'))
+        url = link.url  # Drop tracking parameters and normalize /reel(s)/ to /p/.
         logger.info(f"开始真人模拟提取，URL: {url}")
         collected_media = []
 
@@ -241,11 +281,11 @@ class InstagramExtractor:
         started = time.monotonic()
 
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            self._navigate_post(page, url, progress_callback, cancelled)
 
             _check_instagram_access(page.url)
 
-            shortcode = parse_post_link(url).post_id
+            shortcode = link.post_id
             initial, complete = _wait_instagram_ready(page, shortcode, allow_complete=not legacy, cancelled=cancelled)
             if complete:
                 logger.info('IG 完整数据提取: %s 项, %.3f 秒（含导航与页面等待，不含浏览器启动）', len(initial), time.monotonic() - started)
@@ -295,7 +335,6 @@ class InstagramExtractor:
             logger.info(f"DOM 提取结果: {dom_imgs} 张图片, {dom_vids} 个视频")
 
             # JSON 降级
-            is_reel = '/reel/' in url
             has_video = any(item[1] == 'video' for item in collected_media)
             if is_reel and not has_video:
                 json_results = extract_post_media_from_json(page)
@@ -681,9 +720,14 @@ def _retry_media_transfer(operation, label):
             time.sleep(delay)
 
 
-def _read_instagram_preview(media, proxy, cancelled, label, headers=None, session=None):
+def _preview_resource(media):
     url, kind, thumb = media
-    resource = thumb if kind == 'video' else url
+    return thumb if kind == 'video' or is_original_image_url(url) else url
+
+
+def _read_instagram_preview(media, proxy, cancelled, label, headers=None, session=None):
+    url, kind, _ = media
+    resource = _preview_resource(media)
     if not resource: raise ValueError('No preview')
     options = {'headers': {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}, 'timeout': (5, 20)}
     if headers: options['headers'].update(headers)
@@ -746,6 +790,36 @@ def _read_instagram_browser_previews(media_by_index, cookies_path, proxy, cancel
     return updates
 
 
+def _shared_media_extractor(app, platform):
+    attr = {'Threads': 'threads_extractor', 'TikTok': 'tiktok_extractor',
+            'Xiaohongshu': 'xiaohongshu_extractor'}.get(platform)
+    return getattr(app, attr) if attr else None
+
+
+def _original_image_extension(data):
+    """Choose an extension from the file bytes without decoding or rewriting it."""
+    if data.startswith(b'\xff\xd8\xff'):
+        return '.jpg'
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return '.png'
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        return '.webp'
+    if data.startswith((b'GIF87a', b'GIF89a')):
+        return '.gif'
+    if data.startswith((b'II*\x00', b'MM\x00*')):
+        return '.tiff'
+    if data[4:8] == b'ftyp' and len(data) >= 16:
+        box_end = min(len(data), int.from_bytes(data[:4], 'big'))
+        brands = {data[8:12], *(data[i:i + 4] for i in range(16, box_end - 3, 4))}
+        if brands & {b'avif', b'avis'}:
+            return '.avif'
+        if brands & {b'heic', b'heix', b'hevc', b'hevx', b'heim', b'heis', b'hevm', b'hevs'}:
+            return '.heic'
+        if brands & {b'mif1', b'msf1'}:
+            return '.heif'
+    raise ValueError('服务器未返回可识别的小红书原图文件，请重新提取链接')
+
+
 def download_media_parallel(media_list, save_dir, prefix="post", progress_callback=None, request_headers=None, proxy=None):
     """media_list: [(url, type, thumb_url), ...]"""
     if not os.path.exists(save_dir):
@@ -759,6 +833,7 @@ def download_media_parallel(media_list, save_dir, prefix="post", progress_callba
     def _download_single(args):
         idx, (url, media_type, _thumb) = args
         try:
+            original_image = media_type == 'image' and is_original_image_url(url)
             item_headers = dict(headers)
             if (urlsplit(url).hostname or '').endswith('twimg.com'):
                 item_headers['Referer'] = 'https://x.com/'
@@ -785,12 +860,22 @@ def download_media_parallel(media_list, save_dir, prefix="post", progress_callba
                         if mime.startswith('text/'): raise ValueError('服务器未返回媒体文件，请重新提取链接')
                         if media_type != 'video':
                             file_ext = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}.get(mime, file_ext)
+                    chunks = (chunk for chunk in resp.iter_content(chunk_size=256*1024) if chunk)
+                    head = b''
+                    if original_image:
+                        for chunk in chunks:
+                            head += chunk
+                            if len(head) >= 64:
+                                break
+                        file_ext = _original_image_extension(head)
                     out_path = os.path.join(save_dir, f"{prefix}_{idx+1}{file_ext}")
                     partial_path = out_path + '.part'
                     try:
                         with open(partial_path, "wb") as f:
-                            for chunk in resp.iter_content(chunk_size=256*1024):
-                                if chunk: f.write(chunk)
+                            if head:
+                                f.write(head)
+                            for chunk in chunks:
+                                f.write(chunk)
                         os.replace(partial_path, out_path)
                     finally:
                         # Each retry starts clean; an incomplete read never
@@ -799,7 +884,7 @@ def download_media_parallel(media_list, save_dir, prefix="post", progress_callba
                 return out_path, file_ext
 
             out_path, ext = _retry_media_transfer(transfer, f'下载第 {idx+1} 项')
-            if ext == ".webp":
+            if ext == ".webp" and not original_image:
                 try:
                     png_path = out_path.replace(".webp", ".png")
                     with Image.open(out_path) as img:
@@ -864,9 +949,9 @@ def create_card_thumbnail(pil_img, resolution_str="1080 × 1350", is_selected=Tr
     w, h = target_size
 
     # 左下角分辨率标签
-    pill_w, pill_h = 68, 18
-    draw.rounded_rectangle([6, h - 24, 6 + pill_w, h - 24 + pill_h], radius=4, fill=(0, 0, 0, 170))
     font = _get_pil_font(9)
+    pill_w = min(w - 12, max(68, round(draw.textlength(resolution_str, font=font)) + 8))
+    draw.rounded_rectangle([6, h - 24, 6 + pill_w, h - 6], radius=4, fill=(0, 0, 0, 170))
     draw.text((10, h - 21), resolution_str, fill=(255, 255, 255, 240), font=font)
 
     # 右上角选中徽章
@@ -900,12 +985,13 @@ def _make_video_placeholder_card(res_str, is_selected=True, target_size=(120, 15
     # 左下角标签
     pill_w, pill_h = min(w - 12, int(w * 0.6)), max(12, int(h * 0.12))
     font_size = max(7, int(min(w, h) * 0.07))
-    draw.rounded_rectangle([6, h - pill_h - 6, 6 + pill_w, h - 6], radius=4, fill=(0, 0, 0, 170))
     font = _get_pil_font(font_size)
     display_text = res_str
     if media_type == 'image':
         try: font = ImageFont.truetype('msyh.ttc', font_size)
         except OSError: display_text = 'Loading...' if '加载' in res_str else 'No preview'
+    pill_w = min(w - 12, max(pill_w, round(draw.textlength(display_text, font=font)) + 8))
+    draw.rounded_rectangle([6, h - pill_h - 6, 6 + pill_w, h - 6], radius=4, fill=(0, 0, 0, 170))
     draw.text((10, h - pill_h - 3), display_text, fill=(255, 255, 255, 240), font=font)
 
     # 选中徽章
@@ -1427,6 +1513,7 @@ class YouTubeDownloader:
 
 
 from harmony_ui import HarmonyUI
+from harmony_scene import controls as scene_controls
 
 
 class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
@@ -1480,7 +1567,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         default_dir = saved_dir if saved_dir else os.path.join(os.path.expanduser("~"), "Pictures", "Instagram")
         self.dir_var = ctk.StringVar(value=default_dir)
         self.proxy_var = ctk.StringVar()
-        self.image_data = []  # [(url, width, height, raw_pil_img)]
+        self.image_data = []  # [(download_url, width, height, preview_image, media_type)]
         self.selected_indices = set()
         self.card_buttons = []
         self.running = False
@@ -1504,6 +1591,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.x_extractor = XMediaExtractor(cookies_path)
         self.tiktok_extractor = TikTokMediaExtractor(cookies_path)
         self.threads_extractor = ThreadsMediaExtractor(cookies_path)
+        self.xiaohongshu_extractor = XiaohongshuMediaExtractor()
         self.yt_downloader = YouTubeDownloader()
         self.video_queue = VideoTaskQueue(self._run_video_task, concurrency=3)
         self._yt_queue_poll_id = None
@@ -1605,6 +1693,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
     def destroy(self):
         self._closing = True
+        if getattr(self, '_resize_after_id', None) is not None:
+            self.after_cancel(self._resize_after_id)
+            self._resize_after_id = None
         if hasattr(self, 'video_queue'): self.video_queue.close()
         if getattr(self, '_yt_queue_poll_id', None) is not None:
             self.after_cancel(self._yt_queue_poll_id)
@@ -1762,19 +1853,17 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             def status_callback(msg):
                 self.after(0, lambda: self.status_label.configure(text=msg))
 
+            extractor = _shared_media_extractor(self, link.platform)
+            if extractor is not None:
+                media_list = extractor.extract(url, status_callback, proxy=proxy)
+                self.after(0, self._fetch_complete, media_list, None, extractor.resolved_link)
+                return
             if link.platform == 'X':
                 media_list = self.x_extractor.extract(url, status_callback, proxy=proxy)
-            elif link.platform == 'Threads':
-                media_list = self.threads_extractor.extract(url, status_callback, proxy=proxy)
-                self.after(0, self._fetch_complete, media_list, None, self.threads_extractor.resolved_link)
-                return
-            elif link.platform == 'TikTok':
-                media_list = self.tiktok_extractor.extract(url, status_callback, proxy=proxy)
-                self.after(0, self._fetch_complete, media_list, None, self.tiktok_extractor.resolved_link)
-                return
             else:
                 self.ig_extractor.proxy = proxy
-                media_list = self.ig_extractor.extract(url, status_callback)
+                media_list = self.ig_extractor.extract(url, status_callback,
+                    cancelled=lambda: getattr(self, '_closing', False))
             self.after(0, self._fetch_complete, media_list, None)
         except Exception as e:
             logger.exception('%s 提取失败', link.platform)
@@ -1802,6 +1891,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         parts = []
         if img_count: parts.append(f"{img_count} 张图片")
         if vid_count: parts.append(f"{vid_count} 个视频")
+        originals = sum(kind == 'image' and is_original_image_url(url) for url, kind, _ in media_list)
+        if self._current_media_platform() == 'Xiaohongshu' and img_count:
+            parts.append(f'{originals} 张有原图链接' if originals else '仅提供展示图')
         self.count_label.configure(text=f"已找到 {'，'.join(parts)}")
         self.status_label.configure(text="加载缩略图...")
         self.progress_bar.set(0.5)
@@ -1810,15 +1902,20 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         try: media_platform = parse_post_link(getattr(self, '_fetch_url', self.url_var.get())).platform
         except ValueError: media_platform = ''
-        if media_platform in ('Instagram', 'Threads'):
+        if media_platform in ('Instagram', 'Threads', 'Xiaohongshu'):
             self._thumbnail_generation += 1
             self._thumbnail_loading = True
-            self.image_data = [(url, 0, 0, None, kind) for url, kind, _ in media_list]
+            if media_platform == 'Xiaohongshu':
+                sizes = self.xiaohongshu_extractor.original_size
+                self.image_data = [(url, *sizes(url), None, kind) for url, kind, _ in media_list]
+            else:
+                self.image_data = [(url, 0, 0, None, kind) for url, kind, _ in media_list]
             self._render_thumbnails(previews_pending=True)
-            if media_platform == 'Threads':
+            if media_platform != 'Instagram':
+                extractor = _shared_media_extractor(self, media_platform)
                 threading.Thread(target=self._load_instagram_previews,
-                    args=(media_list, self._thumbnail_generation, self.threads_extractor.proxy,
-                          self.threads_extractor.request_headers), daemon=True).start()
+                    args=(media_list, self._thumbnail_generation, extractor.proxy,
+                          extractor.request_headers), daemon=True).start()
                 return
             proxy = self.proxy_var.get().strip() or None
             threading.Thread(target=self._load_instagram_previews,
@@ -1838,6 +1935,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         def fetch(item):
             index, (url, kind, thumb) = item
             if cancelled(): return index, None
+            resource = _preview_resource((url, kind, thumb))
             try:
                 session = None
                 if request_headers is None:
@@ -1847,13 +1945,13 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                     session = local.session
                 return index, _read_instagram_preview((url, kind, thumb), proxy,
                     cancelled, f'预览第 {index+1} 项',
-                    headers=request_headers(thumb if kind == 'video' else url) if request_headers else None,
+                    headers=request_headers(resource) if request_headers else None,
                     session=session)
             except Exception as error:
                 if not cancelled():
                     response = getattr(error, 'response', None)
                     logger.warning('预览第 %d 项不可用（%s，%s，HTTP %s）', index + 1,
-                                   urlsplit(thumb if kind == 'video' else url).hostname,
+                                   urlsplit(resource).hostname,
                                    type(error).__name__, response.status_code if response is not None else '-')
                 return index, (url, 0, 0, None, kind)
         try:
@@ -1882,7 +1980,11 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
     def _apply_instagram_preview(self, index, item, generation, completed, total):
         if self._closing or generation != self._thumbnail_generation or index >= len(self.image_data): return
-        if self.image_data[index][0] != item[0]: return
+        url, width, height, _, kind = self.image_data[index]
+        if url != item[0]: return
+        # A Xiaohongshu original and its decoded web preview have different sizes.
+        if kind == 'image' and is_original_image_url(url):
+            item = (url, width, height, item[3], kind)
         self.image_data[index] = item
         self._refresh_media_card(index)
         if not self.running:
@@ -1899,7 +2001,9 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             missing = sum(item[3] is None for item in self.image_data)
             self.status_label.configure(text=f'已提取 {len(self.image_data)} 项；{missing} 项预览加载失败' if missing else '完成',text_color=self.c['warning' if missing else 'success_text'])
             self.progress_bar.set(1)
-        self._save_cache(getattr(self, 'current_shortcode', 'post'))
+        shortcode = getattr(self, 'current_shortcode', 'post')
+        if self._current_media_platform() != 'Xiaohongshu':
+            self._save_cache(shortcode)
         if any(item[3] is None for item in self.image_data):
             self._start_instagram_recovery(generation)
 
@@ -1988,10 +2092,17 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.update_selection_summary()
         self._save_cache(getattr(self, 'current_shortcode', 'post'))
 
+    def _image_resolution_label(self, url, width, height):
+        if is_original_image_url(url):
+            return f'原图 {width} × {height}' if width and height else '原图尺寸未知'
+        if width and height:
+            return f'{width} × {height}'
+        return '预览加载中' if self._thumbnail_loading else '预览不可用'
+
     def _refresh_media_card(self, index):
         if index >= len(self.card_buttons): return
-        _, width, height, image, kind = self.image_data[index]
-        label = '视频' if kind == 'video' else f'{width} × {height}' if width and height else '预览加载中' if self._thumbnail_loading else '预览不可用'
+        url, width, height, image, kind = self.image_data[index]
+        label = '视频' if kind == 'video' else self._image_resolution_label(url, width, height)
         row = self.card_buttons[index]
         row['raw_pil'], row['res_str'] = image, label
         selected = index in self.selected_indices
@@ -2051,18 +2162,18 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.after(0, self._render_thumbnails)
 
     def _calc_grid(self):
-        grid_width = self.preview_grid.winfo_width()
+        grid_width = self.preview_grid.winfo_width() / self.preview_grid._get_widget_scaling()
         if grid_width < 50:
             # 初始未渲染时用窗口宽 - 侧边栏(260) - 外层 padx(25*2) - 安全余量(50)
-            grid_width = self.winfo_width() - 360
+            grid_width = self.winfo_width() / self._get_window_scaling() - 360
         # 安全余量：CTkScrollableFrame 滚动条叠加在内容上方，需扣除
         grid_width = max(0, grid_width - 100)
         gap = 12
-        col_count = max(1, (grid_width - gap) // (self.CARD_WIDTH + gap))
+        col_count = max(1, int((grid_width - gap) // (self.CARD_WIDTH + gap)))
         card_w = self.CARD_WIDTH
         card_h = self.CARD_HEIGHT
         if col_count < 3:
-            card_w = max(70, (grid_width - gap * (col_count + 1)) // col_count)
+            card_w = max(70, int((grid_width - gap * (col_count + 1)) // col_count))
             card_h = int(card_w * 1.25)
         return col_count, card_w, card_h
 
@@ -2074,14 +2185,27 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self._resize_after_id = self.after(self.PROGRESS_UPDATE_INTERVAL, self._relayout_thumbnails)
 
     def _relayout_thumbnails(self):
+        self._resize_after_id = None
         nc, nw, nh = self._calc_grid()
         if nc == self.col_count and nw == self.card_w:
             return
-        self.col_count, self.card_w, self.card_h = nc, nw, nh
         self._render_thumbnails(is_relayout=True)
 
     def _render_thumbnails(self, is_relayout=False, previews_pending=False):
         c = self.c
+        # A column change only moves existing controls; the decoded image,
+        # scaled card and click bindings can all stay alive.
+        if (is_relayout and self.image_data and len(self.card_buttons) == len(self.image_data)
+                and all(item['btn'].winfo_exists() for item in self.card_buttons)):
+            previous_size = (self.card_w, self.card_h)
+            self.col_count, self.card_w, self.card_h = self._calc_grid()
+            for index, item in enumerate(self.card_buttons):
+                item['btn'].grid_configure(row=index // self.col_count, column=index % self.col_count)
+                if previous_size != (self.card_w, self.card_h):
+                    item['btn'].configure(width=self.card_w, height=self.card_h)
+                    self._refresh_media_card(index)
+            self.update_selection_summary()
+            return
         for widget in self.preview_grid.winfo_children():
             widget.destroy()
         self.card_buttons.clear()
@@ -2094,8 +2218,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         for idx, (url, w, h, raw_pil, media_type) in enumerate(self.image_data):
             row, col = idx // self.col_count, idx % self.col_count
-            label = "视频" if media_type == 'video' else (f"{w} × {h}" if (w and h) else "预览加载中" if self._thumbnail_loading else "预览不可用")
-            res_str = f"🎬 {label}" if media_type == 'video' else label
+            res_str = '🎬 视频' if media_type == 'video' else self._image_resolution_label(url, w, h)
             target = (self.card_w, self.card_h)
 
             is_sel = idx in self.selected_indices
@@ -2105,7 +2228,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
                 card_img = create_card_thumbnail(raw_pil, resolution_str=res_str, is_selected=is_sel, target_size=target)
             ctk_img = ctk.CTkImage(light_image=card_img, size=target)
 
-            btn = ctk.CTkButton(
+            btn = scene_controls.CTkButton(
                 self.preview_grid, image=ctk_img, text="", width=self.card_w, height=self.card_h,
                 fg_color="transparent", hover_color=c["accent_bg"], corner_radius=8,
                 command=lambda i=idx: self.toggle_card_selection(i)
@@ -2151,7 +2274,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.update_selection_summary()
 
     def _show_preview(self, idx):
-        """右键预览：弹出窗口显示原图"""
+        """右键查看媒体预览和可用的图片尺寸。"""
         if idx >= len(self.image_data):
             return
         url, w, h, raw_pil, media_type = self.image_data[idx]
@@ -2195,6 +2318,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         type_label = "视频" if media_type == 'video' else "图片"
         res_text = f"{type_label}  |  {w} × {h}" if (w and h) else type_label
+        if media_type == 'image' and is_original_image_url(url):
+            res_text = f'预览  |  {self._image_resolution_label(url, w, h)}'
         info = ctk.CTkLabel(preview, text=res_text, font=(self.ui_font, 12), text_color=c["text_secondary"])
         info.pack(pady=(0, 10))
 
@@ -2257,6 +2382,22 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         else:
             self.status_label.configure(text="请先选择媒体",text_color=self.c["warning"])
 
+    def _current_media_platform(self):
+        try:
+            return parse_post_link(getattr(self, '_fetch_url', '')).platform
+        except ValueError:
+            return ''
+
+    def _download_media_extractor(self):
+        shortcode = getattr(self, 'current_shortcode', 'post')
+        if shortcode.startswith('threads_'):
+            return self.threads_extractor
+        if shortcode.startswith('tiktok_'):
+            return self.tiktok_extractor
+        if shortcode.startswith('xhs_') and self._current_media_platform() == 'Xiaohongshu':
+            return self.xiaohongshu_extractor
+        return None
+
     def download_all(self):
         if not self.image_data or self.running:
             return
@@ -2266,7 +2407,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
             self.status_label.configure(text="请选择保存目录",text_color=self.c["warning"])
             return
 
-        selected = [self.image_data[i] for i in self.selected_indices if i < len(self.image_data)]
+        selected = [self.image_data[i] for i in sorted(self.selected_indices) if i < len(self.image_data)]
         if not selected:
             self.status_label.configure(text="没有选中媒体",text_color=self.c["warning"])
             return
@@ -2279,9 +2420,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         self.progress_bar.configure(progress_color=self.c["accent"])
         self.progress_bar.set(0)
 
-        prefix = getattr(self, 'current_shortcode', 'post')
-        proxy = (self.threads_extractor.proxy if prefix.startswith('threads_') else
-                 self.tiktok_extractor.proxy if prefix.startswith('tiktok_') else self.proxy_var.get().strip() or None)
+        extractor = self._download_media_extractor()
+        proxy = extractor.proxy if extractor else self.proxy_var.get().strip() or None
         threading.Thread(target=self._download_worker, args=(media_list, save_dir, proxy), daemon=True).start()
 
     def _download_worker(self, media_list, save_dir, proxy=None):
@@ -2291,7 +2431,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
 
         prefix = getattr(self, "current_shortcode", "post")
         try:
-            headers = self.threads_extractor.request_headers if prefix.startswith('threads_') else self.tiktok_extractor.request_headers
+            extractor = self._download_media_extractor()
+            headers = extractor.request_headers if extractor else None
             succeeded, total = download_media_parallel(media_list, save_dir, prefix, progress_callback,
                                                       headers, proxy)
             self.after(0, self._download_complete, succeeded, total)
@@ -2568,11 +2709,13 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
     def _add_to_history(self, url, count=0):
         cfg = load_config()
         history = cfg.get("history", [])
-        history = [h for h in history if h.get("url") != url]
+        shortcode = getattr(self, 'current_shortcode', 'post')
+        history = [h for h in history if h.get('url') != url and
+                   not (shortcode.startswith('xhs_') and h.get('shortcode') == shortcode)]
         import datetime
         entry = {
             "url": url,
-            "shortcode": getattr(self, "current_shortcode", "post"),
+            "shortcode": shortcode,
             "count": count,
             "timestamp": datetime.datetime.now().strftime("%m-%d %H:%M")
         }
@@ -2622,13 +2765,15 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         """折叠态：在标题栏下方显示最新一条历史记录"""
         self._hide_inline()
         c = self.c
-        short = first_item.get("shortcode", "")[:12]
+        shortcode = first_item.get('shortcode', '')
+        short = shortcode[:12]
         ts = first_item.get("timestamp", "")
         count = first_item.get("count", 0)
         url = first_item.get("url", "")
-        platform = 'Threads' if short.startswith('threads_') else 'TikTok' if short.startswith('tiktok_') else 'X' if short.startswith('x_') else ''
+        platform = {'threads': 'Threads', 'tiktok': 'TikTok', 'x': 'X',
+                    'xhs': '小红书'}.get(shortcode.partition('_')[0], '') if '_' in shortcode else ''
         label = f"{platform + ' · ' if platform else ''}{short}...  {count}项  {ts}"
-        btn = ctk.CTkButton(
+        btn = scene_controls.CTkButton(
             self.hist_inline, text=label, font=(self.ui_font, 12), anchor="w", image=self._img("link" if platform else "instagram",size=21),
             fg_color=c["history_bg"], text_color=c["text_button_dim"],
             hover_color=c["ghost_hover"], corner_radius=10, height=50,
@@ -2662,7 +2807,8 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         inner.pack(fill="both", expand=True, padx=1, pady=1)
 
         for h in history:
-            short = h.get("shortcode", "")[:12]
+            shortcode = h.get('shortcode', '')
+            short = '小红书 · ' + shortcode[4:12] if shortcode.startswith('xhs_') else shortcode[:12]
             ts = h.get("timestamp", "")
             count = h.get("count", 0)
             url = h.get("url", "")
@@ -2722,7 +2868,7 @@ class InstagramDownloaderApp(HarmonyUI, ctk.CTk):
         try:
             link = parse_post_link(url)
             shortcode = link.cache_key
-            if link.platform in ('TikTok', 'Threads'):
+            if link.platform in ('TikTok', 'Threads', 'Xiaohongshu'):
                 # Signed CDN URLs and their request cookies expire. Refresh the
                 # post instead of reviving stale links or persisting credentials.
                 self.url_var.set(link.url)
