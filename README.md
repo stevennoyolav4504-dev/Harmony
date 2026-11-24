@@ -1,6 +1,6 @@
 # Harmony 2.5 — 多媒体下载器
 
-[![Version](https://img.shields.io/badge/version-2.5.2-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
+[![Version](https://img.shields.io/badge/version-2.5.4-9850FF.svg)](https://github.com/stevennoyolav4504-dev/Harmony/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](Harmony/LICENSE)
 
@@ -13,6 +13,10 @@
 
 新版采用浅紫色卡片布局、文字侧边栏与顶部平台切换，并换用三色云下载图标。
 新增 YouTube「解析视频」入口，修复片段时间输入、本地目录选择及外观切换后的状态恢复。
+
+2.5.4 更新内置 yt-dlp 至官方 nightly 2026.11.23.232705，配套 EJS 0.8.0；按新版依赖将证书库 certifi 更新至 2026.11.20。
+
+2.5.3 小红书原图预览卡片与右键预览显示笔记原图尺寸，缩略图继续使用网页预览，无法取得原图尺寸时明确标为未知。
 
 2.5.2 修复小红书原图带有区域目录时被误判为展示图的问题。解析原图地址时保留区域目录和图片目录，下载时继续保存原始格式和字节。
 
@@ -64,7 +68,7 @@ Threads 解析、预览和下载沿用代理与原始请求来源，只读取现
 
 2.0.2 修复任务栏与标题栏图标模糊的问题：按当前 DPI 分别加载大小图标，并设置独立的 Windows 应用 ID；2.0.1 修复链接输入框占位提示遮挡编辑区的问题。
 
-- [2.5.2 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.5.2)
+- [2.5.4 下载](https://github.com/stevennoyolav4504-dev/Harmony/releases/tag/v2.5.4)
 - [完整更新日志](Harmony/CHANGELOG.md)
 - 升级时先退出旧版，将新版解压到新文件夹；如需保留设置，可将自己的 `config.json`、`cookies.json`、`youtube_cookies.txt` 和 `.image_cache` 复制到新版程序旁。发布包不包含个人配置或登录数据。
 
@@ -119,7 +123,7 @@ Threads 解析、预览和下载沿用代理与原始请求来源，只读取现
 
 ### 普通用户（推荐）
 
-1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.5.2-Windows-x64.zip`
+1. **下载**：前往 [Releases](https://github.com/stevennoyolav4504-dev/Harmony/releases) 下载最新版本的 `Harmony-2.5.4-Windows-x64.zip`
 2. **解压**：解压到你想要的任意位置
 3. **运行**：双击 `Harmony.exe` 即可启动
 
